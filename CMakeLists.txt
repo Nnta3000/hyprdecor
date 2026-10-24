@@ -43,4 +43,11 @@ if(HYPRDECOR_BUILD_TESTS)
     pkg_check_modules(cairo_only REQUIRED IMPORTED_TARGET cairo)
     target_link_libraries(ninepatch_test PRIVATE PkgConfig::cairo_only)
     target_compile_options(ninepatch_test PRIVATE -Wall -Wextra)
+
+    # Tests the Lua value readers (booleans were being read as numbers and silently
+    # ignored). Needs only liblua, which the plugin already links.
+    pkg_check_modules(lua_only REQUIRED IMPORTED_TARGET lua5.5)
+    add_executable(config_value_test tests/config_value_test.cpp)
+    target_link_libraries(config_value_test PRIVATE PkgConfig::lua_only)
+    target_compile_options(config_value_test PRIVATE -Wall -Wextra)
 endif()
