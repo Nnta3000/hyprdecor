@@ -43,7 +43,6 @@ public:
 
     // Queues a layout recalculation for the next main-loop tick. Safe to call from
     // inside a render pass, unlike recalculateMonitor() itself.
-    void requestRelayout();
 
     // True once the config manager has committed this plugin's values.
     bool configReady() const;
@@ -89,7 +88,7 @@ public:
 
     // Deferred update, see CPlugin::requestUpdate().
     bool m_bUpdatePending = false;
-    bool m_bRelayoutPending = false;
+    int  m_iProbeFrames = 0;   // evidence probe, see processPendingUpdate()
     int  m_iUpdateRetries = 0;
 
     // Last render state, exposed by CPlugin::statusString().

@@ -48,9 +48,7 @@ static void onNewWindow(void *self, std::any data)
         // and its address is not stable.
         gPlugin->m_vWindows.push_back(PWINDOW);
 
-        // NOTE: do NOT force a relayout here. The window is already being laid out
-        // with the decoration's extents when it opens; calling recalculateMonitor()
-        // a frame later produced the "window fills the output" state.
+        gPlugin->m_iProbeFrames = 20;
     }
 }
 

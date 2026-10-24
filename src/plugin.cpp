@@ -257,22 +257,28 @@ void CPlugin::requestUpdate()
     Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] update requested (this={})", (void *)this));
 }
 
-void CPlugin::requestRelayout()
-{
-    m_bRelayoutPending = true;
-}
-
 void CPlugin::processPendingUpdate()
 {
-    // Runs before the update check: relayout may be queued from a render pass.
-    if (m_bRelayoutPending)
+    // Evidence probe: for a while after a window opens, log what the positioner
+    // thinks is reserved vs. the actual window box. The "window fills the output"
+    // bug should show up here as reserved collapsing to 0.
+    if (m_iProbeFrames > 0)
     {
-        m_bRelayoutPending = false;
-        Log::logger->log(Log::DEBUG, "[HYPRDECOR] performing deferred relayout");
-        for (auto bar : liveDecorators())
+        --m_iProbeFrames;
+
+        for (const auto &ref : m_vWindows)
         {
-            if (auto win = bar->getOwner())
-                g_layoutManager->recalculateMonitor(win->m_monitor.lock());
+            const auto W = ref.lock();
+            if (!W)
+                continue;
+
+            const auto RESERVED = g_pDecorationPositioner->getWindowDecorationReserved(W);
+            const auto WSIZE = W->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+            const auto MMON = W->m_monitor.lock();
+            Log::logger->log(Log::DEBUG, std::format("[PROBE f{}] win={}x{} reserved L{:.0f} T{:.0f} R{:.0f} B{:.0f} mon={}x{} decos={}",
+                                                     m_iProbeFrames, WSIZE.x, WSIZE.y,
+                                                     RESERVED.topLeft.x, RESERVED.topLeft.y, RESERVED.bottomRight.x, RESERVED.bottomRight.y,
+                                                     MMON ? MMON->m_size.x : 0, MMON ? MMON->m_size.y : 0, W->m_windowDecorations.size()));
         }
     }
 
