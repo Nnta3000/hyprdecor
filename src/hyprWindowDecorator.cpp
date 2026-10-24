@@ -85,13 +85,13 @@ SBoxExtents CHyprWindowDecorator::currentExtents() const
     if (!gPlugin->enabled || m_hidden)
         return {{0, 0}, {0, 0}};
 
-    // The resolved per-side offsets already encode the precedence
-    // (explicit thickness -> nine-patch padding -> border size), computed in
-    // CPlugin::update(). decoration_padding is a text/button inset INSIDE the band,
-    // not layout margin, so it must not be added here: doing so turned
-    // "thickness = 0" into 37px of reserved space.
-    return {{gPlugin->decoration_offset_left, gPlugin->decoration_offset_top},
-            {gPlugin->decoration_offset_right, gPlugin->decoration_offset_bottom}};
+    // Reserved space = frame art thickness + the user's inset. The nine-patch is
+    // stretched over this same box (see assignedBoxGlobal), so the extra space is
+    // filled with frame art, never left as a hole.
+    return {{(double)(gPlugin->decoration_offset_left + gPlugin->inset_left),
+             (double)(gPlugin->decoration_offset_top + gPlugin->inset_top)},
+            {(double)(gPlugin->decoration_offset_right + gPlugin->inset_right),
+             (double)(gPlugin->decoration_offset_bottom + gPlugin->inset_bottom)}};
 }
 
 SDecorationPositioningInfo CHyprWindowDecorator::getPositioningInfo()
@@ -104,7 +104,9 @@ SDecorationPositioningInfo CHyprWindowDecorator::getPositioningInfo()
     info.policy = DECORATION_POSITION_ABSOLUTE;
     info.edges = DECORATION_EDGE_TOP | DECORATION_EDGE_BOTTOM | DECORATION_EDGE_LEFT | DECORATION_EDGE_RIGHT;
     info.priority = gPlugin->bar_precedence_over_border ? 10005 : 5000;
-    info.reserved = !gPlugin->decoration_inset;
+    // Always reserve: the frame surrounds the window, and `inset` is real space, not a
+    // switch. (The old decoration_inset flag meant "reserve nothing".)
+    info.reserved = true;
 
     info.desiredExtents = currentExtents();
 
@@ -785,9 +787,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
 
     Render::GL::g_pHyprOpenGL->scissor(titleBarBox);
 
-    const int PBORDERINSET = gPlugin->decoration_inset;
-
-    if (ROUNDING && !PBORDERINSET)
+    if (ROUNDING)
     {
         // the +1 is a shit garbage temp fix until renderRect supports an alpha matte
         CBox windowBox = {PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x - pMonitor->m_position.x + 1,

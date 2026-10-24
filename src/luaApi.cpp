@@ -137,9 +137,9 @@ bool Hyprdecor::Lua::tableField(lua_State *L, int tableIdx, const char *key, con
 // Reads `thickness`, which accepts either a number (all sides) or a table
 // { left, top, right, bottom }. Sides left unset stay -1 and are resolved later from
 // the nine-patch markers.
-static bool readThickness(lua_State *L, int borderIdx, SFrameThickness &out)
+static bool readThicknessNamed(lua_State *L, int borderIdx, const char *key, SFrameThickness &out)
 {
-    lua_getfield(L, borderIdx, "thickness");
+    lua_getfield(L, borderIdx, key);
     const int TYPE = lua_type(L, -1);
 
     if (TYPE == LUA_TNUMBER)
@@ -172,6 +172,11 @@ static bool readThickness(lua_State *L, int borderIdx, SFrameThickness &out)
 
     lua_pop(L, 1);
     return false;
+}
+
+static bool readThickness(lua_State *L, int borderIdx, SFrameThickness &out)
+{
+    return readThicknessNamed(L, borderIdx, "thickness", out);
 }
 
 // hl.plugin.hyprdecor.setup({ defaults = { border = {...}, title = {...} } })
@@ -229,6 +234,9 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
 
         if (hasField(L, BORDER, "thickness") && !readThickness(L, BORDER, NEXT.thickness))
             return raise(L, "hyprdecor.setup: 'defaults.border.thickness' must be a number or a table {{ left, top, right, bottom }}");
+
+        if (hasField(L, BORDER, "inset") && !readThicknessNamed(L, BORDER, "inset", NEXT.inset))
+            return raise(L, "hyprdecor.setup: 'defaults.border.inset' must be a number or a table {{ left, top, right, bottom }}");
 
         if (hasField(L, BORDER, "alpha"))
         {
