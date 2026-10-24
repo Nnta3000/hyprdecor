@@ -336,6 +336,56 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
         lua_pop(L, 1);
     }
 
+    // ---- elements ---------------------------------------------------------
+    if (tableField(L, DEFAULTS, "elements", "defaults.elements"))
+    {
+        const int LIST = lua_gettop(L);
+        const int N = (int)lua_rawlen(L, LIST);
+
+        for (int i = 1; i <= N; ++i)
+        {
+            lua_rawgeti(L, LIST, i);
+            const int ITEM = lua_gettop(L);
+
+            if (!lua_istable(L, ITEM))
+                return raise(L, "hyprdecor.setup: 'defaults.elements[{}]' must be a table", i);
+
+            SElement E;
+
+            const auto IMAGE = stringField(L, ITEM, "image");
+            if (!IMAGE || IMAGE->empty())
+                return raise(L, "hyprdecor.setup: 'defaults.elements[{}].image' is required", i);
+            E.path = *IMAGE;
+
+            if (hasField(L, ITEM, "anchor"))
+            {
+                const auto ANCHOR = stringField(L, ITEM, "anchor");
+                if (!ANCHOR)
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].anchor' must be a string", i);
+
+                if (*ANCHOR == "top-left")
+                    E.anchor = SElement::eAnchor::TopLeft;
+                else if (*ANCHOR == "top-centre" || *ANCHOR == "top-center")
+                    E.anchor = SElement::eAnchor::TopCentre;
+                else if (*ANCHOR == "top-right")
+                    E.anchor = SElement::eAnchor::TopRight;
+                else
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].anchor' must be top-left, top-centre or top-right (got \"{}\")", i, *ANCHOR);
+            }
+
+            E.offsetX = numberField(L, ITEM, "offset_x", 0);
+            E.offsetY = numberField(L, ITEM, "offset_y", 0);
+            E.width   = hasField(L, ITEM, "width") ? numberField(L, ITEM, "width", -1) : -1;
+            E.height  = hasField(L, ITEM, "height") ? numberField(L, ITEM, "height", -1) : -1;
+
+            NEXT.elements.push_back(E);
+
+            lua_pop(L, 1); // ITEM
+        }
+
+        lua_pop(L, 1); // LIST
+    }
+
     // ---- commit -----------------------------------------------------------
     // Only after everything validated: setup() applies completely or not at all.
     NEXT.applies = gPlugin->cfg.applies + 1;

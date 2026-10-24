@@ -10,6 +10,14 @@
 #include "ninepatch.hpp"
 #include "config.hpp"
 
+// Runtime state for a configured SElement: the loaded texture and its natural size.
+struct SElementTex
+{
+    SElement            cfg;
+    SP<Render::ITexture> tex = makeShared<Render::GL::CGLTexture>();
+    Vector2D            naturalSize = {0, 0};
+};
+
 struct SHyprButton
 {
     std::string cmd = "";
@@ -122,6 +130,7 @@ public:
 
     HANDLE m_pHandle = nullptr;
     std::vector<SHyprButton> m_vButtons;
+    std::vector<SElementTex> m_vElements;
 
     // Windows we have decorated. Decorators themselves are owned by Hyprland
     // (window->m_windowDecorations); storing their raw pointers here went stale as

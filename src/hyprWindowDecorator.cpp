@@ -921,6 +921,41 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     if (m_bWindowSizeChanged)
         m_bButtonsDirty = true;
 
+    // Positioned images (eye, button backdrop, title background, ...). Drawn inside the
+    // TOP BAND only, so art can never spill over the client area.
+    {
+        const double BANDH = gPlugin->decoration_offset_top * pMonitor->m_scale;
+        const double BANDW = titleBarBox.width;
+
+        if (BANDH > 0 && BANDW > 0)
+        {
+            for (const auto &element : gPlugin->m_vElements)
+            {
+                if (!element.tex || element.tex->m_texID == 0)
+                    continue;
+
+                const double W = element.cfg.width > 0 ? element.cfg.width * pMonitor->m_scale : element.naturalSize.x * std::max(1, gPlugin->cfg.artScale);
+                const double H = element.cfg.height > 0 ? element.cfg.height * pMonitor->m_scale : element.naturalSize.y * std::max(1, gPlugin->cfg.artScale);
+
+                const double OX = element.cfg.offsetX * pMonitor->m_scale;
+                const double OY = element.cfg.offsetY * pMonitor->m_scale;
+
+                double X = titleBarBox.x;
+                switch (element.cfg.anchor)
+                {
+                    case SElement::eAnchor::TopLeft: X = titleBarBox.x + OX; break;
+                    case SElement::eAnchor::TopCentre: X = titleBarBox.x + (BANDW - W) / 2.0 + OX; break;
+                    case SElement::eAnchor::TopRight: X = titleBarBox.x + BANDW - W + OX; break;
+                }
+                const double Y = titleBarBox.y + OY;
+
+                Render::GL::CHyprOpenGLImpl::STextureRenderData edata;
+                edata.a = a;
+                Render::GL::g_pHyprOpenGL->renderTexture(element.tex, CBox{X, Y, W, H}, edata);
+            }
+        }
+    }
+
     // Plain solid outline, drawn on top of whatever was rendered above.
     // `bar_outline_always = false` restricts it to the no-texture fallback.
     if (gPlugin->bar_outline_width > 0 && (gPlugin->bar_outline_always || !sourceSurface))
