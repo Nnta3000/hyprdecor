@@ -855,6 +855,11 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
             if (GRID.degraded)
                 Log::logger->log(Log::WARN, std::format("[HYPRDECOR] frame too large for its box ({}x{} at scale {}); scaling to fit", sw, sh, pMonitor->m_scale));
 
+            // Resampling happens HERE, in Cairo, because the canvas is composited at
+            // device scale before it ever reaches OpenGL. The GL texture filter cannot
+            // undo it, so this is where linear_filtering must be applied.
+            const auto RESAMPLE = gPlugin->cfg.linearFiltering ? NinePatch::eFilter::Bilinear : NinePatch::eFilter::Nearest;
+
             const double *sx = GRID.sx;
             const double *sy = GRID.sy;
             const double *dx = GRID.dx;
@@ -877,11 +882,11 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                     bool isMiddlePatch = (i == 1 || j == 1);
                     if (gPlugin->ninepatch_repeat && isMiddlePatch)
                     {
-                        drawRepeatedSurface(CAIRO, sourceSurface, sx[i], sy[j], sx[i + 1] - sx[i], sy[j + 1] - sy[j], dx[i], dy[j], dx[i + 1] - dx[i], dy[j + 1] - dy[j]);
+                        drawRepeatedSurface(CAIRO, sourceSurface, sx[i], sy[j], sx[i + 1] - sx[i], sy[j + 1] - sy[j], dx[i], dy[j], dx[i + 1] - dx[i], dy[j + 1] - dy[j], RESAMPLE);
                     }
                     else
                     {
-                        drawSizedSurface(CAIRO, sourceSurface, sx[i], sy[j], sx[i + 1] - sx[i], sy[j + 1] - sy[j], dx[i], dy[j], dx[i + 1] - dx[i], dy[j + 1] - dy[j]);
+                        drawSizedSurface(CAIRO, sourceSurface, sx[i], sy[j], sx[i + 1] - sx[i], sy[j + 1] - sy[j], dx[i], dy[j], dx[i + 1] - dx[i], dy[j + 1] - dy[j], RESAMPLE);
                     }
 
                     if (middleAlphaVal < 1.0)
