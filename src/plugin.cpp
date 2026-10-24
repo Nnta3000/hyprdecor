@@ -143,20 +143,40 @@ Hyprlang::CParseResult onNewButtonTextured([[maybe_unused]] const char *K, const
 
 void CPlugin::loadAllTextures()
 {
-    // Elements: keep m_vElements in sync with the configured list, then load lazily.
+    // Elements: the config is ALWAYS copied, so editing an existing element's offsets
+    // takes effect. (Comparing only the list size meant edits were ignored whenever the
+    // count stayed the same.) Textures reload only when their inputs changed.
     if (m_vElements.size() != cfg.elements.size())
-    {
-        std::vector<SElementTex> rebuilt(cfg.elements.size());
-        for (size_t i = 0; i < cfg.elements.size(); ++i)
-            rebuilt[i].cfg = cfg.elements[i];
-        m_vElements = std::move(rebuilt);
-    }
+        m_vElements.resize(cfg.elements.size());
 
-    for (auto &element : m_vElements)
+    for (size_t i = 0; i < cfg.elements.size(); ++i)
     {
-        if (element.tex->m_texID == 0 && !element.cfg.path.empty())
+        auto &element = m_vElements[i];
+        element.cfg = cfg.elements[i];
+
+        const bool LINEAR = element.cfg.filter ? *element.cfg.filter : cfg.linearFiltering;
+        const bool NEEDS_RELOAD = element.tex->m_texID == 0 || element.loadedPath != element.cfg.path || element.loadedLinear != LINEAR;
+
+        if (NEEDS_RELOAD && !element.cfg.path.empty())
         {
-            loadTexture(element.cfg.path, element.tex, cfg.linearFiltering);
+            element.tex = makeShared<Render::GL::CGLTexture>();
+            element.npi = SNinePatchInfo{};
+
+            if (element.cfg.ninepatch)
+            {
+                // Nine-patch elements need the markers, so go through loadSurface with
+                // metadata parsing and upload the cropped result.
+                cairo_surface_t *surface = loadSurface(element.cfg.path, &element.npi);
+                if (surface)
+                {
+                    uploadCairoSurface(element.tex, surface, LINEAR);
+                    cairo_surface_destroy(surface);
+                }
+            }
+            else
+                loadTexture(element.cfg.path, element.tex, LINEAR);
+            element.loadedPath = element.cfg.path;
+            element.loadedLinear = LINEAR;
             if (element.tex->m_texID != 0)
                 element.naturalSize = element.tex->m_size;
         }

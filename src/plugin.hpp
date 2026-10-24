@@ -13,9 +13,17 @@
 // Runtime state for a configured SElement: the loaded texture and its natural size.
 struct SElementTex
 {
-    SElement            cfg;
+    SElement             cfg;
     SP<Render::ITexture> tex = makeShared<Render::GL::CGLTexture>();
-    Vector2D            naturalSize = {0, 0};
+    Vector2D             naturalSize = {0, 0};
+
+    // What the currently loaded texture was built from, so a settings change forces a
+    // reload instead of silently keeping the old pixels.
+    std::string loadedPath;
+    bool        loadedLinear = false;
+
+    // Nine-patch markers, read once when the image loads.
+    SNinePatchInfo npi;
 };
 
 struct SHyprButton
