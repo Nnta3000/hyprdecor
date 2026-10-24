@@ -347,6 +347,56 @@ static void testFrameBox()
     CHECK((boxY + boxH) - (winY + winH) == T, "bottom margin should be the thickness");
 }
 
+// border.scale must magnify the fixed corners without compounding with any other
+// factor, and the grid must stay monotonic at every scale.
+static void testArtScale()
+{
+    header("border.scale: corners magnify, grid stays ordered");
+
+    // 3px sides and a 15px top band in a 21px source: 15+3 = 18 <= 21, so the
+    // markers are valid and nothing should be clamped.
+    SNinePatchInfo info;
+    info.border[0] = info.border[2] = 3;
+    info.border[1] = 15;
+    info.border[3] = 3;
+    info.defined = true;
+
+    for (const double S : {1.0, 2.0, 3.0})
+    {
+        const auto L = NinePatch::layout(info, 21, 21, 400, 200, S);
+
+        // Fixed corners occupy border * scale pixels.
+        CHECK(std::abs(L.dx[1] - 3 * S) < 0.001, "left corner at scale %.0f should be %.0f, got %.0f", S, 3 * S, L.dx[1]);
+        CHECK(std::abs(L.dy[1] - 15 * S) < 0.001, "top corner at scale %.0f should be %.0f, got %.0f", S, 15 * S, L.dy[1]);
+        CHECK(std::abs(L.dx[2] - (400 - 3 * S)) < 0.001, "right corner start wrong at scale %.0f", S);
+
+        // Ordering must hold, which is what a compounded or misapplied scale breaks.
+        CHECK(L.dx[0] <= L.dx[1] && L.dx[1] <= L.dx[2] && L.dx[2] <= L.dx[3], "dx not monotonic at scale %.0f", S);
+        CHECK(L.dy[0] <= L.dy[1] && L.dy[1] <= L.dy[2] && L.dy[2] <= L.dy[3], "dy not monotonic at scale %.0f", S);
+
+        // Reserved space must equal what is drawn: the same expression the plugin uses.
+        CHECK(!L.degraded, "should not degrade at scale %.0f for a large destination", S);
+    }
+
+    // Markers that exceed the source are clamped, never allowed to invert the grid.
+    SNinePatchInfo tight;
+    tight.border[0] = tight.border[2] = 3;
+    tight.border[1] = tight.border[3] = 15; // 30 > 21: must be clamped
+    tight.defined = true;
+
+    for (const double S : {1.0, 2.0})
+    {
+        const auto T = NinePatch::layout(tight, 21, 21, 400, 200, S);
+        CHECK(T.dy[1] <= T.dy[2], "clamped grid must stay ordered at scale %.0f", S);
+        CHECK(T.dy[1] < 21 * S + 0.001, "clamped top must not exceed the source height at scale %.0f", S);
+    }
+
+    // A 4x scale on a small destination must degrade rather than overlap.
+    const auto BIG = NinePatch::layout(info, 21, 21, 40, 40, 8.0);
+    CHECK(BIG.degraded, "8x scale in a 40px box should be flagged as degraded");
+    CHECK(BIG.dy[1] <= BIG.dy[2], "degraded grid must still be ordered");
+}
+
 int main()
 {
     std::printf("hyprdecor nine-patch tests\n");
@@ -359,6 +409,7 @@ int main()
     testComposeFullSizeMatch();
     testMalformedInput();
     testFrameBox();
+    testArtScale();
 
     std::printf("\n%s (%d failure%s)\n", g_failures ? "FAILED" : "ALL PASSED", g_failures, g_failures == 1 ? "" : "s");
     return g_failures ? 1 : 0;

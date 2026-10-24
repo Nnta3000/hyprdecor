@@ -82,30 +82,16 @@ CHyprWindowDecorator::~CHyprWindowDecorator()
 // disagree and clicks land in the wrong place.
 SBoxExtents CHyprWindowDecorator::currentExtents() const
 {
-    SBoxExtents extents{{0, 0}, {0, 0}};
-
     if (!gPlugin->enabled || m_hidden)
-        return extents;
+        return {{0, 0}, {0, 0}};
 
-    // setup() thickness is authoritative: it fixes the reserved space even when the
-    // texture has not been parsed.
-    if (gPlugin->setup_applied && gPlugin->setup_border_thickness >= 0)
-    {
-        const auto T = (double)gPlugin->setup_border_thickness;
-        extents.topLeft = Vector2D(T, T);
-        extents.bottomRight = Vector2D(T, T);
-        return extents;
-    }
-
-    const auto &NPI = gPlugin->activeNinepatch.defined ? gPlugin->activeNinepatch : gPlugin->inactiveNinepatch;
-    const auto P = (double)gPlugin->decoration_padding;
-
-    extents.topLeft.x = gPlugin->decoration_offset_left + NPI.padding[0] + P;
-    extents.topLeft.y = gPlugin->decoration_offset_top + NPI.padding[1] + P;
-    extents.bottomRight.x = gPlugin->decoration_offset_right + NPI.padding[2] + P;
-    extents.bottomRight.y = gPlugin->decoration_offset_bottom + NPI.padding[3] + P;
-
-    return extents;
+    // The resolved per-side offsets already encode the precedence
+    // (explicit thickness -> nine-patch padding -> border size), computed in
+    // CPlugin::update(). decoration_padding is a text/button inset INSIDE the band,
+    // not layout margin, so it must not be added here: doing so turned
+    // "thickness = 0" into 37px of reserved space.
+    return {{gPlugin->decoration_offset_left, gPlugin->decoration_offset_top},
+            {gPlugin->decoration_offset_right, gPlugin->decoration_offset_bottom}};
 }
 
 SDecorationPositioningInfo CHyprWindowDecorator::getPositioningInfo()
@@ -861,7 +847,10 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
             gridInfo.border[3] = border[3];
             gridInfo.defined = true;
 
-            const auto GRID = NinePatch::layout(gridInfo, (double)sw, (double)sh, (double)titleBarBox.width, (double)titleBarBox.height, pMonitor->m_scale);
+            // The grid scale is monitor scale times the art scale, so border.scale
+            // enlarges the pixel art without compounding with the monitor scale.
+            const auto GRID = NinePatch::layout(gridInfo, (double)sw, (double)sh, (double)titleBarBox.width, (double)titleBarBox.height,
+                                                pMonitor->m_scale * (double)std::max(1, gPlugin->cfg.artScale));
 
             if (GRID.degraded)
                 Log::logger->log(Log::WARN, std::format("[HYPRDECOR] frame too large for its box ({}x{} at scale {}); scaling to fit", sw, sh, pMonitor->m_scale));

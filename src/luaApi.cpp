@@ -220,6 +220,14 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             NEXT.middleAlpha = ALPHA;
         }
 
+        if (hasField(L, BORDER, "scale"))
+        {
+            const double ART_SCALE = numberField(L, BORDER, "scale", 1);
+            if (ART_SCALE < 1 || ART_SCALE != (int)ART_SCALE)
+                return raise(L, "hyprdecor.setup: 'defaults.border.scale' must be a positive integer");
+            NEXT.artScale = (int)ART_SCALE;
+        }
+
         if (hasField(L, BORDER, "linear_filtering"))
             NEXT.linearFiltering = numberField(L, BORDER, "linear_filtering", 1) != 0;
 
@@ -315,9 +323,10 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
     NEXT.applies = gPlugin->cfg.applies + 1;
     gPlugin->cfg = NEXT;
 
-    Log::logger->log(Log::DEBUG, std::format("{}setup(): texture=\"{}\" thickness L{} T{} R{} B{} alpha={} font=\"{}\"",
+    Log::logger->log(Log::DEBUG, std::format("{}setup(): texture=\"{}\" thickness L{} T{} R{} B{} artScale={} alpha={} font=\"{}\"",
                                              TAG, gPlugin->cfg.textureBase, gPlugin->cfg.thickness.left, gPlugin->cfg.thickness.top,
-                                             gPlugin->cfg.thickness.right, gPlugin->cfg.thickness.bottom, gPlugin->cfg.middleAlpha, gPlugin->cfg.titleFont));
+                                             gPlugin->cfg.thickness.right, gPlugin->cfg.thickness.bottom, gPlugin->cfg.artScale,
+                                             gPlugin->cfg.middleAlpha, gPlugin->cfg.titleFont));
 
     // Deferred: applying the configuration drives layout and damage, which must not
     // happen re-entrantly inside a Lua callback.

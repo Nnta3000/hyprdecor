@@ -345,13 +345,18 @@ void CPlugin::update()
         return (int)std::lround(borderPx);
     };
 
-    decoration_offset_left   = SIDE(C.thickness.left, RESOLVE.padding[0], RESOLVE.border[0]);
-    decoration_offset_top    = SIDE(C.thickness.top, RESOLVE.padding[1], RESOLVE.border[1]);
-    decoration_offset_right  = SIDE(C.thickness.right, RESOLVE.padding[2], RESOLVE.border[2]);
-    decoration_offset_bottom = SIDE(C.thickness.bottom, RESOLVE.padding[3], RESOLVE.border[3]);
+    // border.scale magnifies the frame art, so the space it occupies grows with it.
+    // Reserved space and rendering must use the same factor or the frame overlaps the
+    // window (or leaves a gap).
+    const int SC = std::max(1, C.artScale);
 
-    Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] resolved extents L{} T{} R{} B{} (padding {} {} {} {}, border {} {} {} {})",
-                                             decoration_offset_left, decoration_offset_top, decoration_offset_right, decoration_offset_bottom,
+    decoration_offset_left   = SIDE(C.thickness.left, RESOLVE.padding[0], RESOLVE.border[0]) * SC;
+    decoration_offset_top    = SIDE(C.thickness.top, RESOLVE.padding[1], RESOLVE.border[1]) * SC;
+    decoration_offset_right  = SIDE(C.thickness.right, RESOLVE.padding[2], RESOLVE.border[2]) * SC;
+    decoration_offset_bottom = SIDE(C.thickness.bottom, RESOLVE.padding[3], RESOLVE.border[3]) * SC;
+
+    Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] resolved extents L{} T{} R{} B{} at border.scale={} (markers: padding {} {} {} {}, border {} {} {} {})",
+                                             decoration_offset_left, decoration_offset_top, decoration_offset_right, decoration_offset_bottom, SC,
                                              (int)RESOLVE.padding[0], (int)RESOLVE.padding[1], (int)RESOLVE.padding[2], (int)RESOLVE.padding[3],
                                              (int)RESOLVE.border[0], (int)RESOLVE.border[1], (int)RESOLVE.border[2], (int)RESOLVE.border[3]));
 
