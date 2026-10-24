@@ -79,6 +79,37 @@ inline void drawRepeatedSurface(cairo_t *cr, cairo_surface_t *surface, double sx
     NinePatch::drawRepeated(cr, surface, sx, sy, sw, sh, dx, dy, dw, dh);
 }
 
+// Uploads a cairo image surface into an OpenGL texture.
+//
+// Cairo ARGB32 is premultiplied BGRA in little-endian memory. Uploading it through
+// CGLTexture::update(DRM_FORMAT_ARGB8888, ...) produced an empty (black) texture, so
+// every texture in this plugin goes through glTexImage2D with an R/B swizzle instead.
+// Keeping it in one place means the title, buttons, icons and nine-patch canvas can
+// never diverge again.
+inline void uploadCairoSurface(const SP<Render::ITexture> &tex, cairo_surface_t *surface, bool linear)
+{
+    if (!tex || !surface)
+        return;
+
+    cairo_surface_flush(surface);
+
+    const auto DATA = cairo_image_surface_get_data(surface);
+    const int W = cairo_image_surface_get_width(surface);
+    const int H = cairo_image_surface_get_height(surface);
+
+    tex->allocate(Vector2D{(double)W, (double)H});
+    glBindTexture(GL_TEXTURE_2D, tex->m_texID);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, linear ? GL_LINEAR : GL_NEAREST);
+#ifndef GLES2
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_BLUE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
+#endif
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, W, H, 0, GL_RGBA, GL_UNSIGNED_BYTE, DATA);
+
+    tex->m_size = {(double)W, (double)H};
+}
+
 inline void loadTexture(std::string path, SP<Render::ITexture> &out, bool linear = true, int targetSize = 0)
 {
     if (path.empty() || out->m_texID != 0)
@@ -88,21 +119,7 @@ inline void loadTexture(std::string path, SP<Render::ITexture> &out, bool linear
     if (!CAIROSURFACE)
         return;
 
-    const auto DATA = cairo_image_surface_get_data(CAIROSURFACE);
-    const auto WIDTH = cairo_image_surface_get_width(CAIROSURFACE);
-    const auto HEIGHT = cairo_image_surface_get_height(CAIROSURFACE);
-
-    // Cairo ARGB32 is premultiplied BGRA in little-endian memory, i.e. DRM
-    // ARGB8888. Uploading it as GL_RGBA ignored both the channel order and the
-    // premultiplication, which rendered the transparent frame as black.
-    out->allocate(Vector2D{(double)WIDTH, (double)HEIGHT}, DRM_FORMAT_ARGB8888);
-    out->setTexParameter(GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
-    out->setTexParameter(GL_TEXTURE_MIN_FILTER, linear ? GL_LINEAR : GL_NEAREST);
-
-    CRegion damage = CBox{0, 0, (double)WIDTH, (double)HEIGHT};
-    out->update(DRM_FORMAT_ARGB8888, DATA, cairo_image_surface_get_stride(CAIROSURFACE), damage);
-
-    out->m_size = {(double)WIDTH, (double)HEIGHT};
+    uploadCairoSurface(out, CAIROSURFACE, linear);
 
     cairo_surface_destroy(CAIROSURFACE);
 }

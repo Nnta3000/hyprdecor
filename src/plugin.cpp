@@ -84,7 +84,7 @@ std::vector<CHyprWindowDecorator *> CPlugin::liveDecorators() const
     return out;
 }
 
-Hyprlang::CParseResult onNewButtonTextured(const char *K, const char *V)
+Hyprlang::CParseResult onNewButtonTextured([[maybe_unused]] const char *K, const char *V)
 {
     std::string v = V;
     const auto vars = Compat::splitVars(v);
