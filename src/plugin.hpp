@@ -106,7 +106,7 @@ public:
     bool ninepatch_linear_filtering = true;
     bool ninepatch_repeat = false;
     bool decoration_appicon_enabled = true;
-    bool decoration_render_above;
+    bool decoration_render_above = false;
     CHyprColor bar_outline_color = CHyprColor(1, 1, 1, 1);
     int bar_outline_width = 1;
     bool bar_outline_always = true;
