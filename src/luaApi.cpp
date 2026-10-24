@@ -290,10 +290,16 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             NEXT.textColor = (uint64_t)numberField(L, TITLE, "color", 0xFFFFFFFF);
         if (hasField(L, TITLE, "inset"))
             NEXT.titleInset = numberField(L, TITLE, "inset", 0);
+        if (hasField(L, TITLE, "gap"))
+            NEXT.titleGap = numberField(L, TITLE, "gap", 0);
         if (hasField(L, TITLE, "offset_x"))
             NEXT.titleOffsetX = numberField(L, TITLE, "offset_x", 0);
         if (hasField(L, TITLE, "offset_y"))
             NEXT.titleOffsetY = numberField(L, TITLE, "offset_y", 0);
+        if (hasField(L, TITLE, "text_offset_x"))
+            NEXT.textOffsetX = numberField(L, TITLE, "text_offset_x", 0);
+        if (hasField(L, TITLE, "text_offset_y"))
+            NEXT.textOffsetY = numberField(L, TITLE, "text_offset_y", 0);
         if (hasField(L, TITLE, "max_width"))
             NEXT.titleMaxWidth = numberField(L, TITLE, "max_width", -1);
         if (hasField(L, TITLE, "ellipsize"))

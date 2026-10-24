@@ -481,8 +481,9 @@ CBox CHyprWindowDecorator::titleBox(const CBox &band, const float scale) const
     const auto &C = gPlugin->cfg;
 
     // Widest extent reached by elements anchored left / right, in band-local px.
-    double leftEdge  = C.titleInset * scale;
-    double rightEdge = band.width - C.titleInset * scale;
+    // Layout spacing only: titleInset is text padding and is applied inside the box.
+    double leftEdge  = C.titleGap * scale;
+    double rightEdge = band.width - C.titleGap * scale;
 
 
     for (const auto &el : gPlugin->m_vElements)
@@ -494,9 +495,9 @@ CBox CHyprWindowDecorator::titleBox(const CBox &band, const float scale) const
         const double OX = el.cfg.offsetX * scale;
 
         if (el.cfg.anchor == SElement::eAnchor::TopLeft)
-            leftEdge = std::max(leftEdge, OX + W + C.titleInset * scale);
+            leftEdge = std::max(leftEdge, OX + W + C.titleGap * scale);
         else if (el.cfg.anchor == SElement::eAnchor::TopRight)
-            rightEdge = std::min(rightEdge, band.width - W + OX - C.titleInset * scale);
+            rightEdge = std::min(rightEdge, band.width - W + OX - C.titleGap * scale);
     }
 
     double x = band.x + leftEdge + C.titleOffsetX * scale;
@@ -568,9 +569,10 @@ void CHyprWindowDecorator::renderBarTitle(const CBox &band, const float scale)
     PangoContext *context = pango_layout_get_context(layout);
     pango_context_set_base_dir(context, PANGO_DIRECTION_NEUTRAL);
 
-    // The canvas is exactly the title box, so the text may use all of it. Ellipsising
-    // keeps a long title inside the box instead of spilling over its neighbours.
-    const float maxWidth = std::max(0.0f, (float)bufferSize.x);
+    // The canvas is exactly the title box. titleInset is padding INSIDE it, so the text
+    // gets the box minus that padding on both sides.
+    const float INSET = (float)gPlugin->cfg.titleInset * scale;
+    const float maxWidth = std::max(0.0f, (float)bufferSize.x - INSET * 2.0f);
 
     pango_layout_set_width(layout, (int)std::round(maxWidth * PANGO_SCALE));
     if (gPlugin->cfg.titleEllipsize)
@@ -591,8 +593,9 @@ void CHyprWindowDecorator::renderBarTitle(const CBox &band, const float scale)
     else if (ALIGN == "centre")
         align = 0.5f;
 
-    const int xOffset = (int)std::round((maxWidth - (float)layoutWidth / PANGO_SCALE) * align);
-    const int yOffset = std::round((logicalHeight / 2.0 - layoutHeight / PANGO_SCALE / 2.0));
+    // Alignment, then the padding, then the text's own nudge.
+    const int xOffset = (int)std::round(INSET + (maxWidth - (float)layoutWidth / PANGO_SCALE) * align + gPlugin->cfg.textOffsetX * scale);
+    const int yOffset = (int)std::round((logicalHeight / 2.0 - layoutHeight / PANGO_SCALE / 2.0) + gPlugin->cfg.textOffsetY * scale);
 
     cairo_move_to(CAIRO, xOffset, yOffset);
     pango_cairo_show_layout(CAIRO, layout);
