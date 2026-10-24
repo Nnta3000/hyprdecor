@@ -1,3 +1,5 @@
+#pragma once
+
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/desktop/view/Window.hpp>
@@ -25,7 +27,7 @@
 // tested without Hyprland (see tests/ninepatch_test.cpp). These wrappers only add
 // the plugin-specific bits: logging and optional icon pre-scaling.
 
-static cairo_surface_t *loadSurface(std::string path, SNinePatchInfo *pInfo = nullptr, int targetSize = 0)
+inline cairo_surface_t *loadSurface(std::string path, SNinePatchInfo *pInfo = nullptr, int targetSize = 0)
 {
     if (path.empty())
     {
@@ -67,17 +69,17 @@ static cairo_surface_t *loadSurface(std::string path, SNinePatchInfo *pInfo = nu
     return out;
 }
 
-static void drawSizedSurface(cairo_t *cr, cairo_surface_t *surface, double sx, double sy, double sw, double sh, double dx, double dy, double dw, double dh)
+inline void drawSizedSurface(cairo_t *cr, cairo_surface_t *surface, double sx, double sy, double sw, double sh, double dx, double dy, double dw, double dh)
 {
     NinePatch::drawSized(cr, surface, sx, sy, sw, sh, dx, dy, dw, dh);
 }
 
-static void drawRepeatedSurface(cairo_t *cr, cairo_surface_t *surface, double sx, double sy, double sw, double sh, double dx, double dy, double dw, double dh)
+inline void drawRepeatedSurface(cairo_t *cr, cairo_surface_t *surface, double sx, double sy, double sw, double sh, double dx, double dy, double dw, double dh)
 {
     NinePatch::drawRepeated(cr, surface, sx, sy, sw, sh, dx, dy, dw, dh);
 }
 
-static void loadTexture(std::string path, SP<Render::ITexture> &out, bool linear = true, int targetSize = 0)
+inline void loadTexture(std::string path, SP<Render::ITexture> &out, bool linear = true, int targetSize = 0)
 {
     if (path.empty() || out->m_texID != 0)
         return;
@@ -105,7 +107,7 @@ static void loadTexture(std::string path, SP<Render::ITexture> &out, bool linear
     cairo_surface_destroy(CAIROSURFACE);
 }
 
-static std::string findDesktopFile(const std::string &appId)
+inline std::string findDesktopFile(const std::string &appId)
 {
     std::vector<std::string> searchPaths;
 
@@ -156,7 +158,7 @@ static std::string findDesktopFile(const std::string &appId)
     return "";
 }
 
-static std::string getIconFromDesktop(const std::string &desktopPath)
+inline std::string getIconFromDesktop(const std::string &desktopPath)
 {
     std::ifstream file(desktopPath);
     if (!file.is_open())
@@ -181,7 +183,7 @@ static std::string getIconFromDesktop(const std::string &desktopPath)
     return "";
 }
 
-static std::string resolveIconPath(const std::string &iconName)
+inline std::string resolveIconPath(const std::string &iconName)
 {
     if (iconName.empty())
         return "";
@@ -261,7 +263,7 @@ static std::string resolveIconPath(const std::string &iconName)
     return "";
 }
 
-static void loadAppIcon(const std::string &appId, SP<Render::ITexture> &out, int targetSize)
+inline void loadAppIcon(const std::string &appId, SP<Render::ITexture> &out, int targetSize)
 {
     if (appId.empty())
         return;
