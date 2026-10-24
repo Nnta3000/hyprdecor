@@ -177,6 +177,9 @@ void CPlugin::loadAllTextures()
                 loadTexture(element.cfg.path, element.tex, LINEAR);
             element.loadedPath = element.cfg.path;
             element.loadedLinear = LINEAR;
+            Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] element[{}] loaded \"{}\" filter={} (border.linear_filtering={}, override={})",
+                                                      i, element.cfg.path, LINEAR ? "linear" : "nearest", cfg.linearFiltering,
+                                                      element.cfg.filter ? (*element.cfg.filter ? "linear" : "nearest") : "none"));
             if (element.tex->m_texID != 0)
                 element.naturalSize = element.tex->m_size;
         }
