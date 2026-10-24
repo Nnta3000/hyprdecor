@@ -8,6 +8,7 @@
 #include <hyprland/src/event/EventBus.hpp>
 #include <cairo/cairo.h>
 #include "ninepatch.hpp"
+#include "config.hpp"
 
 struct SHyprButton
 {
@@ -55,6 +56,9 @@ public:
 
     // First existing file for `base` + one of `suffixes`; empty when none match.
     std::string resolveTexturePath(const std::string &base, const std::vector<std::string> &suffixes, const std::string &fallback = "");
+
+    // The whole configuration, filled by hl.plugin.hyprdecor.setup().
+    SConfig cfg;
 
     CHyprColor bar_color = CHyprColor(0.2F, 0.2F, 0.2F, 0.53F);
     int decoration_offset_top = 0;

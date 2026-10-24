@@ -167,45 +167,9 @@ void CPlugin::loadAllTextures()
 CPlugin::CPlugin(HANDLE handle)
 {
     m_pHandle = handle;
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:bar_color", Hyprlang::INT{*Compat::configStringToInt("rgba(33333388)")});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:decoration_offset_top", Hyprlang::INT{0});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:col.text", Hyprlang::INT{*Compat::configStringToInt("rgba(ffffffff)")});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:decoration_title_size", Hyprlang::INT{10});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:decoration_title_enabled", Hyprlang::INT{1});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:bar_blur", Hyprlang::INT{0});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:bar_text_font", Hyprlang::STRING{"Sans"});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:decoration_title_align", Hyprlang::FLOAT{0.5});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:decoration_title_placement", Hyprlang::STRING{"top"});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:bar_part_of_window", Hyprlang::INT{1});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:bar_precedence_over_border", Hyprlang::INT{0});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:bar_buttons_alignment", Hyprlang::STRING{"right"});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:decoration_padding", Hyprlang::INT{7});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:bar_button_padding", Hyprlang::INT{5});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:enabled", Hyprlang::INT{1});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:on_double_click", Hyprlang::STRING{""});
-
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:ninepatch_texture", Hyprlang::STRING{""});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:ninepatch_active", Hyprlang::STRING{""});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:ninepatch_inactive", Hyprlang::STRING{""});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:ninepatch_middle_alpha", Hyprlang::FLOAT{0.0});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:ninepatch_repeat", Hyprlang::INT{0});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:ninepatch_linear_filtering", Hyprlang::INT{1});
-
-    // Plain solid outline around the window, drawn on top of (or instead of) the nine-patch.
-    // Handy as a placeholder while there is no texture yet.
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:bar_outline_color", Hyprlang::INT{*(Compat::configStringToInt("rgba(ffffffff)"))});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:bar_outline_width", Hyprlang::INT{0});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:bar_outline_always", Hyprlang::INT{0});
-
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:decoration_inset", Hyprlang::INT{0});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:decoration_offset_left", Hyprlang::INT{0});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:decoration_offset_right", Hyprlang::INT{0});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:decoration_offset_bottom", Hyprlang::INT{0});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:decoration_appicon_enabled", Hyprlang::INT{0});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:decoration_render_above", Hyprlang::INT{0});
-    HyprlandAPI::addConfigValue(m_pHandle, "plugin:hyprdecor:decoration_appicon_offset", Hyprlang::VEC2{0, 0});
-
-    HyprlandAPI::addConfigKeyword(m_pHandle, "plugin:hyprdecor:hyprdecor-button", onNewButtonTextured, Hyprlang::SHandlerOptions{});
+    // No addConfigValue() registrations: the Lua config manager never commits them, so
+    // every read needed a null check and a fallback. Configuration lives in SConfig and
+    // is filled by hl.plugin.hyprdecor.setup().
 }
 
 CPlugin::~CPlugin()
@@ -218,44 +182,6 @@ CPlugin::~CPlugin()
 
 // Read a config value's data pointer, or nullptr if the option is not
 // registered/committed yet (e.g. during PLUGIN_INIT before the first reload).
-template <typename T>
-static T *const *pluginConfigPtr(HANDLE handle, const char *name)
-{
-    const auto VALUE = HyprlandAPI::getConfigValue(handle, name);
-    if (!VALUE)
-        return nullptr;
-    return (T *const *)VALUE->getDataStaticPtr();
-}
-
-// Dereference a plugin STRING config pointer safely.
-// Keeps the existing value when the option is unavailable, instead of blanking it.
-static std::string pluginConfigString(const Hyprlang::STRING *const *ptr, const std::string &current = {})
-{
-    return (ptr && *ptr) ? std::string(**ptr) : current;
-}
-
-static CHyprColor pluginConfigColor(const Hyprlang::INT *const *ptr, uint64_t fallback)
-{
-    return (ptr && *ptr) ? CHyprColor((uint64_t)**ptr) : CHyprColor(fallback);
-}
-
-// Safe reads: legacy addConfigValue() registrations are not committed by the Lua
-// config manager, so getDataStaticPtr() can be null. Dereferencing it unguarded
-// crashed the plugin; these fall back to the built-in default instead.
-static int64_t   cfgInt(Hyprlang::INT *const *p, int64_t fallback) { return (p && *p) ? (int64_t)**p : fallback; }
-static float     cfgFloat(Hyprlang::FLOAT *const *p, float fallback) { return (p && *p) ? (float)**p : fallback; }
-
-void CPlugin::notifyError(const std::string &message)
-{
-    Log::logger->log(Log::ERR, std::format("[HYPRDECOR] {}", message));
-
-    HyprlandAPI::addNotificationV2(m_pHandle,
-                                   {
-                                       {"text", std::string(message)},
-                                       {"time", (uint64_t)10000},
-                                       {"color", CHyprColor(1.0, 0.2, 0.2, 1.0)},
-                                   });
-}
 
 void CPlugin::requestUpdate()
 {
@@ -332,101 +258,45 @@ std::string CPlugin::statusString() const
 
 void CPlugin::update()
 {
-    Log::logger->log(Log::DEBUG, "[HYPRDECOR] update() entered");
-    auto *const PENABLED = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:enabled");
-    // The legacy addConfigValue() registrations are not committed by the Lua config
-    // manager, so these pointers can stay null forever. That must not abort the whole
-    // update: setup() supplies its own values and is authoritative.
-    if (!PENABLED || !*PENABLED)
-        Log::logger->log(Log::WARN, "[HYPRDECOR] update(): config values unavailable (legacy registration); using built-in defaults and setup() values");
-    else
-        enabled = cfgInt(PENABLED, 1);
+    // All configuration now comes from gPlugin->cfg, filled by setup(). There are no
+    // nullable config pointers left, so no fallback dance and no uninitialised state.
+    const SConfig &C = cfg;
 
-    if (!enabled)
-    {
-        Log::logger->log(Log::DEBUG, "[HYPRDECOR] update(): disabled");
-        return;
-    }
+    enabled = C.enabled;
 
-    auto *const PBARCOLOR = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:bar_color");
-    auto *const PHEIGHT = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:decoration_offset_top");
-    auto *const PTEXTCOL = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:col.text");
-    auto *const PTEXTSIZE = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:decoration_title_size");
-    auto *const PTITLEENABLED = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:decoration_title_enabled");
-    auto *const PBARBLUR = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:bar_blur");
-    auto *const PTEXTFONT = pluginConfigPtr<Hyprlang::STRING>(m_pHandle, "plugin:hyprdecor:bar_text_font");
-    auto *const PTEXTALIGN = pluginConfigPtr<Hyprlang::FLOAT>(m_pHandle, "plugin:hyprdecor:decoration_title_align");
-    auto *const PTEXTPLACE = pluginConfigPtr<Hyprlang::STRING>(m_pHandle, "plugin:hyprdecor:decoration_title_placement");
-    auto *const PPARTOW = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:bar_part_of_window");
-    auto *const PPRECEDENCE = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:bar_precedence_over_border");
-    auto *const PALIGNBUTTONS = pluginConfigPtr<Hyprlang::STRING>(m_pHandle, "plugin:hyprdecor:bar_buttons_alignment");
-    auto *const PPADDING = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:decoration_padding");
-    auto *const PBUTPADDING = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:bar_button_padding");
-    auto *const PONDOUBLECLICK = pluginConfigPtr<Hyprlang::STRING>(m_pHandle, "plugin:hyprdecor:on_double_click");
+    bar_color             = CHyprColor(C.barColor);
+    col_text              = CHyprColor(C.textColor);
+    bar_text_font         = C.titleFont;
+    decoration_title_size = C.titleSize;
+    decoration_title_enabled = C.titleEnabled;
+    decoration_title_align   = (float)C.titleAlign;
+    decoration_title_placement = C.titlePlacement;
+    bar_blur                 = C.blur;
+    bar_part_of_window       = C.partOfWindow;
+    bar_precedence_over_border = C.precedenceOverBorder;
+    bar_buttons_alignment    = C.buttonsAlignment;
+    decoration_padding       = C.padding;
+    bar_button_padding       = C.buttonPadding;
+    on_double_click          = C.onDoubleClick;
+    decoration_appicon_enabled = C.appIconEnabled;
+    decoration_appicon_offset  = {C.appIconOffsetX, C.appIconOffsetY};
+    decoration_render_above    = C.renderAbove;
+    ninepatch_linear_filtering = C.linearFiltering;
+    ninepatch_repeat           = C.repeat;
+    ninepatch_middle_alpha     = (float)C.middleAlpha;
+    bar_outline_color          = CHyprColor(C.outlineColor);
+    bar_outline_width          = C.outlineWidth;
+    bar_outline_always         = C.outlineAlways;
 
-    auto *const PTEXTURE = pluginConfigPtr<Hyprlang::STRING>(m_pHandle, "plugin:hyprdecor:ninepatch_texture");
-    auto *const PTEXACTIVE = pluginConfigPtr<Hyprlang::STRING>(m_pHandle, "plugin:hyprdecor:ninepatch_active");
-    auto *const PTEXINACTIVE = pluginConfigPtr<Hyprlang::STRING>(m_pHandle, "plugin:hyprdecor:ninepatch_inactive");
-    auto *const PMIDDLEALPHA = pluginConfigPtr<Hyprlang::FLOAT>(m_pHandle, "plugin:hyprdecor:ninepatch_middle_alpha");
-    auto *const PREPEAT = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:ninepatch_repeat");
-    auto *const PINSET = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:decoration_inset");
-    auto *const PLEFTWIDTH = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:decoration_offset_left");
-    auto *const PRIGHTWIDTH = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:decoration_offset_right");
-    auto *const PBOTTOMHT = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:decoration_offset_bottom");
-    auto *const PLINEAR = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:ninepatch_linear_filtering");
-    auto *const PSHOWAPPICON = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:decoration_appicon_enabled");
-    auto *const PBARABOVE = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:decoration_render_above");
-    auto *const PAPPICONOFFSET = pluginConfigPtr<Hyprlang::VEC2>(m_pHandle, "plugin:hyprdecor:decoration_appicon_offset");
-    auto *const POUTLINECOLOR = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:bar_outline_color");
-    auto *const POUTLINEWIDTH = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:bar_outline_width");
-    auto *const POUTLINEALWAYS = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:bar_outline_always");
+    // Per-side reserved space, resolved with the documented precedence:
+    // explicit value, then the nine-patch padding marker, then its border size.
+    // Resolved after the texture is parsed, below.
 
-    bar_color = pluginConfigColor(PBARCOLOR, 0x88333333);
-    decoration_offset_top = cfgInt(PHEIGHT, 0);
-    col_text = pluginConfigColor(PTEXTCOL, 0xffffffff);
-    decoration_title_size = cfgInt(PTEXTSIZE, 10);
-    decoration_title_enabled = cfgInt(PTITLEENABLED, 1);
-    bar_blur = cfgInt(PBARBLUR, 0);
-    bar_text_font = pluginConfigString(PTEXTFONT, bar_text_font);
-    decoration_title_align = cfgFloat(PTEXTALIGN, 0.5F);
-    decoration_title_placement = pluginConfigString(PTEXTPLACE, decoration_title_placement);
-    bar_part_of_window = cfgInt(PPARTOW, 1);
-    bar_precedence_over_border = cfgInt(PPRECEDENCE, 0);
-    bar_buttons_alignment = pluginConfigString(PALIGNBUTTONS, bar_buttons_alignment);
-    decoration_padding = cfgInt(PPADDING, 7);
-    bar_button_padding = cfgInt(PBUTPADDING, 5);
-    enabled = cfgInt(PENABLED, 1);
-    on_double_click = pluginConfigString(PONDOUBLECLICK, on_double_click);
+    const std::string NINEPATCHACTIVE   = resolveTexturePath(C.textureBase, {"_active", "_focused", "active", ""});
+    const std::string NINEPATCHINACTIVE = resolveTexturePath(C.textureBase, {"_inactive", "_unfocused", "inactive"}, NINEPATCHACTIVE);
 
-    const std::string PTEXTURE_STR = pluginConfigString(PTEXTURE);
-
-    // setup() is the structured API and wins over the flat config values.
-    // ninepatch_texture is a pointer into the Lua string, so it must be copied
-    // here (Lua may collect it after setup() returns).
-    const std::string SETUP_TEXTURE = setup_applied ? ninepatch_texture : std::string();
-    const std::string PTEXACT = setup_applied ? std::string() : pluginConfigString(PTEXACTIVE);
-    const std::string PTEXINACT = setup_applied ? std::string() : pluginConfigString(PTEXINACTIVE);
-
-    std::string NINEPATCHACTIVE = PTEXACT;
-    std::string NINEPATCHINACTIVE = !PTEXINACT.empty() ? PTEXINACT : NINEPATCHACTIVE;
-
-    const std::string BASE = !SETUP_TEXTURE.empty() ? SETUP_TEXTURE : PTEXTURE_STR;
-
-    if (!BASE.empty())
-    {
-        if (NINEPATCHACTIVE.empty())
-            NINEPATCHACTIVE = resolveTexturePath(BASE, {"_active", "_focused", "active", ""});
-        if (NINEPATCHINACTIVE.empty() || NINEPATCHINACTIVE == NINEPATCHACTIVE)
-            NINEPATCHINACTIVE = resolveTexturePath(BASE, {"_inactive", "_unfocused", "inactive"}, NINEPATCHACTIVE);
-
-        // Hard error: a texture was configured but nothing could be resolved.
-        // Falling back to a plain bar here is what made misconfiguration silent.
-        if (NINEPATCHACTIVE.empty())
-        {
-            notifyError(std::format("texture not found: \"{}\" (tried {}_active.png, {}_focused.png, {}active.png, {}.png)",
-                                    BASE, BASE, BASE, BASE, BASE));
-        }
-    }
+    if (!C.textureBase.empty() && NINEPATCHACTIVE.empty())
+        notifyError(std::format("texture not found: \"{}\"", C.textureBase));
 
     // Refresh surfaces
     SNinePatchInfo newActiveNPI, newInactiveNPI;
@@ -453,35 +323,37 @@ void CPlugin::update()
 
     ninepatch_active = NINEPATCHACTIVE;
     ninepatch_inactive = NINEPATCHINACTIVE;
-    ninepatch_texture = BASE;
+    ninepatch_texture = C.textureBase;
     activeSurface = newActiveSurface;
     inactiveSurface = newInactiveSurface ? newInactiveSurface : newActiveSurface;
     activeNinepatch = newActiveNPI;
     inactiveNinepatch = newInactiveSurface ? newInactiveNPI : newActiveNPI;
 
-    ninepatch_middle_alpha = cfgFloat(PMIDDLEALPHA, 0.F);
-    decoration_inset = cfgInt(PINSET, 0);
-    decoration_offset_left = cfgInt(PLEFTWIDTH, 0);
-    decoration_offset_right = cfgInt(PRIGHTWIDTH, 0);
-    decoration_offset_bottom = cfgInt(PBOTTOMHT, 0);
-    ninepatch_linear_filtering = cfgInt(PLINEAR, 1);
-    ninepatch_repeat = cfgInt(PREPEAT, 0);
-    decoration_appicon_enabled = cfgInt(PSHOWAPPICON, 0);
-    decoration_render_above = cfgInt(PBARABOVE, 0);
-    decoration_appicon_offset = (PAPPICONOFFSET && *PAPPICONOFFSET) ? Vector2D((*PAPPICONOFFSET)->x, (*PAPPICONOFFSET)->y) : Vector2D(0, 0);
+    // Resolved per-side reserved space, using the documented precedence:
+    // explicit value -> nine-patch padding marker -> nine-patch border size.
+    // Corner sizes (border) mark where the art stops stretching, which is the closest
+    // thing to "how much the frame occupies" when padding markers are absent.
+    static const SNinePatchInfo EMPTY_NPI;
+    const SNinePatchInfo &RESOLVE = newActiveNPI.defined ? newActiveNPI : EMPTY_NPI;
 
-    // setup() border overrides: one thickness for all four sides.
-    if (setup_applied)
+    const auto SIDE = [&](double explicitValue, float marker, float borderPx) -> int
     {
-        if (setup_border_thickness >= 0)
-            decoration_offset_top = decoration_offset_left = decoration_offset_right = decoration_offset_bottom = setup_border_thickness;
+        if (explicitValue >= 0)
+            return (int)std::lround(explicitValue);
+        if (marker > 0)
+            return (int)std::lround(marker);
+        return (int)std::lround(borderPx);
+    };
 
-        if (setup_border_alpha >= 0.F)
-            ninepatch_middle_alpha = setup_border_alpha;
-    }
-    bar_outline_color = POUTLINECOLOR ? CHyprColor(cfgInt(POUTLINECOLOR, 0)) : CHyprColor(1, 1, 1, 1);
-    bar_outline_width = cfgInt(POUTLINEWIDTH, 0);
-    bar_outline_always = POUTLINEALWAYS ? cfgInt(POUTLINEALWAYS, 0) : 1;
+    decoration_offset_left   = SIDE(C.thickness.left, RESOLVE.padding[0], RESOLVE.border[0]);
+    decoration_offset_top    = SIDE(C.thickness.top, RESOLVE.padding[1], RESOLVE.border[1]);
+    decoration_offset_right  = SIDE(C.thickness.right, RESOLVE.padding[2], RESOLVE.border[2]);
+    decoration_offset_bottom = SIDE(C.thickness.bottom, RESOLVE.padding[3], RESOLVE.border[3]);
+
+    Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] resolved extents L{} T{} R{} B{} (padding {} {} {} {}, border {} {} {} {})",
+                                             decoration_offset_left, decoration_offset_top, decoration_offset_right, decoration_offset_bottom,
+                                             (int)RESOLVE.padding[0], (int)RESOLVE.padding[1], (int)RESOLVE.padding[2], (int)RESOLVE.padding[3],
+                                             (int)RESOLVE.border[0], (int)RESOLVE.border[1], (int)RESOLVE.border[2], (int)RESOLVE.border[3]));
 
     // Damage and update windows after all bars are invalidated
     for (auto bar : liveDecorators())

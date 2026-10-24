@@ -835,7 +835,13 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
 
     if (sourceSurface)
     {
-        if (m_bWindowSizeChanged || m_pBarFinalTex->m_texID == 0 || focusChanged || m_bNinePatchChanged)
+        // Under ABSOLUTE positioning Hyprland replies with an empty assignedGeometry, so
+        // m_bWindowSizeChanged is never set by a resize. Comparing the texture size to
+        // the box is what actually detects a stale frame (previously only focus changes
+        // rebuilt it, which is why resized windows kept an old stretched texture).
+        const Vector2D BARWANT{titleBarBox.width, titleBarBox.height};
+
+        if (m_bWindowSizeChanged || m_pBarFinalTex->m_texID == 0 || focusChanged || m_bNinePatchChanged || m_pBarFinalTex->m_size != BARWANT)
         {
             const auto CAIROSURFACE = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, titleBarBox.width, titleBarBox.height);
             const auto CAIRO = cairo_create(CAIROSURFACE);
@@ -1017,7 +1023,10 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     }
 
     // render title
-    if (gPlugin->decoration_title_enabled && (m_szLastTitle != PWINDOW->m_title || m_bWindowSizeChanged || m_pTextTex->m_texID == 0 || m_bTitleColorChanged))
+    const Vector2D TEXTWANT{(double)topBarBox.width, (double)topBarBox.height};
+
+    if (gPlugin->decoration_title_enabled &&
+        (m_szLastTitle != PWINDOW->m_title || m_bWindowSizeChanged || m_pTextTex->m_texID == 0 || m_bTitleColorChanged || m_pTextTex->m_size != TEXTWANT))
     {
         m_szLastTitle = PWINDOW->m_title;
         renderBarTitle(Vector2D((double)topBarBox.width, (double)topBarBox.height), pMonitor->m_scale);
@@ -1042,7 +1051,10 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
         Render::GL::g_pHyprOpenGL->renderTexture(m_pTextTex, textBox, data);
     }
 
-    if (m_bButtonsDirty || m_bWindowSizeChanged)
+    const bool BTNSVERTICAL = gPlugin->decoration_title_placement == "left" || gPlugin->decoration_title_placement == "right";
+    const Vector2D BTNWANT = BTNSVERTICAL ? Vector2D((double)topBarBox.height, (double)topBarBox.width) : Vector2D((double)topBarBox.width, (double)topBarBox.height);
+
+    if (m_bButtonsDirty || m_bWindowSizeChanged || m_pButtonsTex->m_size != BTNWANT)
     {
         const bool VERTICAL = gPlugin->decoration_title_placement == "left" || gPlugin->decoration_title_placement == "right";
         m_bButtonsDirty = renderBarButtons(VERTICAL ? Vector2D((double)topBarBox.height, (double)topBarBox.width) : Vector2D((double)topBarBox.width, (double)topBarBox.height), pMonitor->m_scale);
