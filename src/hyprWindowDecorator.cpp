@@ -5,7 +5,12 @@
 #include <hyprland/src/desktop/view/Window.hpp>
 #include <hyprland/src/helpers/MiscFunctions.hpp>
 #include <hyprland/src/managers/SeatManager.hpp>
+// m_exclusiveLSes is private in InputManager. The macro must stay scoped to this
+// translation unit: putting it in a header would rewrite InputManager.hpp for every
+// includer.
+#define private public
 #include <hyprland/src/managers/input/InputManager.hpp>
+#undef private
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/layout/LayoutManager.hpp>
 #include <hyprland/src/config/ConfigManager.hpp>

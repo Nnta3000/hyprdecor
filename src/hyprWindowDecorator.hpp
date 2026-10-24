@@ -14,10 +14,6 @@
 #include <cairo/cairo.h>
 #include "plugin.hpp"
 
-#define private public
-#include <hyprland/src/managers/input/InputManager.hpp>
-#undef private
-
 class CHyprWindowDecorator : public IHyprWindowDecoration
 {
 public:
