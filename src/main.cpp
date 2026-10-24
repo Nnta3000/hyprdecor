@@ -48,7 +48,6 @@ static void onNewWindow(void *self, std::any data)
         // and its address is not stable.
         gPlugin->m_vWindows.push_back(PWINDOW);
 
-        gPlugin->m_iProbeFrames = 20;
     }
 }
 

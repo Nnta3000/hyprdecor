@@ -88,7 +88,6 @@ public:
 
     // Deferred update, see CPlugin::requestUpdate().
     bool m_bUpdatePending = false;
-    int  m_iProbeFrames = 0;   // evidence probe, see processPendingUpdate()
     int  m_iUpdateRetries = 0;
 
     // Last render state, exposed by CPlugin::statusString().
