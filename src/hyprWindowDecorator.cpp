@@ -57,7 +57,7 @@ CHyprWindowDecorator::CHyprWindowDecorator(PHLWINDOW pWindow) : IHyprWindowDecor
         [&](ITouch::SMotionEvent e, Event::SCallbackInfo &info)
         { onTouchMove(info, e); });
     m_pMouseMoveCallback = Event::bus()->m_events.input.mouse.move.listen(
-        [&](Vector2D coords, Event::SCallbackInfo &info)
+        [&](Vector2D coords, [[maybe_unused]] Event::SCallbackInfo &info)
         { onMouseMove(coords); });
 
     m_pTextTex = makeShared<Render::GL::CGLTexture>();
@@ -145,8 +145,10 @@ SDecorationPositioningInfo CHyprWindowDecorator::getPositioningInfo()
 void CHyprWindowDecorator::onPositioningReply(const SDecorationPositioningReply &reply)
 {
     if (reply.assignedGeometry.size() != m_bAssignedBox.size())
+    {
         m_bWindowSizeChanged = true;
         m_bNeedsReposition = true;
+    }
 
     m_bAssignedBox = reply.assignedGeometry;
 }
@@ -225,7 +227,7 @@ void CHyprWindowDecorator::onTouchDown(Event::SCallbackInfo &info, ITouch::SDown
     handleDownEvent(info, e);
 }
 
-void CHyprWindowDecorator::onTouchUp(Event::SCallbackInfo &info, ITouch::SUpEvent e)
+void CHyprWindowDecorator::onTouchUp(Event::SCallbackInfo &info, [[maybe_unused]] ITouch::SUpEvent e)
 {
     if (!m_bDragPending || !m_bTouchEv || e.touchID != m_touchId)
         return;
@@ -233,7 +235,7 @@ void CHyprWindowDecorator::onTouchUp(Event::SCallbackInfo &info, ITouch::SUpEven
     handleUpEvent(info);
 }
 
-void CHyprWindowDecorator::onMouseMove(Vector2D coords)
+void CHyprWindowDecorator::onMouseMove([[maybe_unused]] Vector2D coords)
 {
     if (m_bTouchEv || !validMapped(m_pWindow) || m_touchId != 0)
         return;
@@ -248,7 +250,7 @@ void CHyprWindowDecorator::onMouseMove(Vector2D coords)
     handleMovement();
 }
 
-void CHyprWindowDecorator::onTouchMove(Event::SCallbackInfo &info, ITouch::SMotionEvent e)
+void CHyprWindowDecorator::onTouchMove([[maybe_unused]] Event::SCallbackInfo &info, ITouch::SMotionEvent e)
 {
     if (!m_bDragPending || !m_bTouchEv || !validMapped(m_pWindow) || e.touchID != m_touchId)
         return;
@@ -286,7 +288,6 @@ void CHyprWindowDecorator::handleDownEvent(Event::SCallbackInfo &info, std::opti
         COORDS = Vector2D(PMONITOR->m_position.x + e.pos.x * PMONITOR->m_size.x, PMONITOR->m_position.y + e.pos.y * PMONITOR->m_size.y) - assignedBoxGlobal().pos();
     }
 
-    const bool BUTTONSRIGHT = gPlugin->bar_buttons_alignment != "left";
     const std::string ON_DOUBLE_CLICK = gPlugin->on_double_click;
 
     if (!isPointOnBar(COORDS))
@@ -377,7 +378,6 @@ void CHyprWindowDecorator::handleMovement()
 
 int CHyprWindowDecorator::indexToButton(Vector2D COORDS)
 {
-    const bool BUTTONSRIGHT = gPlugin->bar_buttons_alignment != "left";
     const bool VERTICAL = gPlugin->decoration_title_placement == "left" || gPlugin->decoration_title_placement == "right";
     const auto DECOBOX = assignedBoxGlobal();
     const auto &NPI = m_bWindowHasFocus ? gPlugin->activeNinepatch : gPlugin->inactiveNinepatch;
@@ -407,6 +407,7 @@ int CHyprWindowDecorator::indexToButton(Vector2D COORDS)
     const auto relativeCOORDS = COORDS - topBarBox.pos();
     const auto BARBUF = VERTICAL ? Vector2D(topBarBox.h, topBarBox.w) : Vector2D(topBarBox.w, topBarBox.h);
 
+    const bool BUTTONSRIGHT = gPlugin->bar_buttons_alignment != "left";
     const float iconReserved = gPlugin->decoration_appicon_enabled ? (VERTICAL ? topBarBox.w : topBarBox.h) : 0;
     float offset = gPlugin->decoration_padding + (BUTTONSRIGHT ? 0 : iconReserved);
     int idx = 0;
@@ -494,12 +495,9 @@ void CHyprWindowDecorator::renderText(SP<Render::ITexture> out, const std::strin
 
 void CHyprWindowDecorator::renderBarTitle(const Vector2D &bufferSize, const float scale)
 {
-    const bool BUTTONSRIGHT = gPlugin->bar_buttons_alignment != "left";
     const bool VERTICAL = gPlugin->decoration_title_placement == "left" || gPlugin->decoration_title_placement == "right";
 
     const auto PWINDOW = m_pWindow.lock();
-
-    const auto BORDERSIZE = PWINDOW->getRealBorderSize();
 
     float buttonSizes = gPlugin->bar_button_padding;
     for (auto &b : gPlugin->m_vButtons)
@@ -508,7 +506,6 @@ void CHyprWindowDecorator::renderBarTitle(const Vector2D &bufferSize, const floa
     }
 
     const auto scaledSize = gPlugin->decoration_title_size * scale;
-    const auto scaledBorderSize = BORDERSIZE * scale;
     const auto scaledButtonsSize = buttonSizes * scale;
     const auto scaledBarPadding = gPlugin->decoration_padding * scale;
 
@@ -563,6 +560,7 @@ void CHyprWindowDecorator::renderBarTitle(const Vector2D &bufferSize, const floa
     // Use float alignment (0.0 to 1.0)
     const float align = std::clamp(gPlugin->decoration_title_align, 0.0f, 1.0f);
 
+    const bool BUTTONSRIGHT = gPlugin->bar_buttons_alignment != "left";
     const float availableWidth = logicalWidth - paddingTotal;
     const int xOffset = std::round(scaledBarPadding + (BUTTONSRIGHT ? 0 : scaledButtonsSize) + iconReserved + (availableWidth - (float)layoutWidth / PANGO_SCALE) * align);
     const int yOffset = std::round((logicalHeight / 2.0 - layoutHeight / PANGO_SCALE / 2.0));
@@ -613,10 +611,10 @@ size_t CHyprWindowDecorator::getVisibleButtonCount(const Vector2D &bufferSize, c
     return count;
 }
 
-bool CHyprWindowDecorator::renderBarButtons(const Vector2D &bufferSize, const float scale)
+bool CHyprWindowDecorator::renderBarButtons(const Vector2D &bufferSize, [[maybe_unused]] const float scale)
 {
-    const bool BUTTONSRIGHT = gPlugin->bar_buttons_alignment != "left";
-    const auto visibleCount = getVisibleButtonCount(bufferSize, scale);
+    // Buttons are drawn by renderBarButtonsText(); this only clears the button canvas.
+    const bool texturesLoaded = false;
 
     const auto CAIROSURFACE = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, bufferSize.x, bufferSize.y);
     const auto CAIRO = cairo_create(CAIROSURFACE);
@@ -627,19 +625,7 @@ bool CHyprWindowDecorator::renderBarButtons(const Vector2D &bufferSize, const fl
     cairo_paint(CAIRO);
     cairo_restore(CAIRO);
 
-    // draw buttons
-    const bool VERTICAL = gPlugin->decoration_title_placement == "left" || gPlugin->decoration_title_placement == "right";
-    double offset = gPlugin->decoration_padding * scale;
-    bool texturesLoaded = false;
-    for (size_t i = 0; i < visibleCount; ++i)
-    {
-        auto &button = gPlugin->m_vButtons[i];
-        const auto alongSize = (VERTICAL ? button.size.y : button.size.x);
-        const auto scaledButtonSize = alongSize * scale;
-        const auto scaledButtonsPad = gPlugin->bar_button_padding * scale;
-
-        offset += scaledButtonsPad + scaledButtonSize;
-    }
+    // (upstream computed a running button offset here and never used it)
 
     // copy the data to an OpenGL texture we have
     const auto DATA = cairo_image_surface_get_data(CAIROSURFACE);
@@ -663,11 +649,11 @@ bool CHyprWindowDecorator::renderBarButtons(const Vector2D &bufferSize, const fl
 
 void CHyprWindowDecorator::renderBarButtonsText(CBox *barBox, const float scale, const float a)
 {
-    const bool BUTTONSRIGHT = gPlugin->bar_buttons_alignment != "left";
     const bool VERTICAL = gPlugin->decoration_title_placement == "left" || gPlugin->decoration_title_placement == "right";
     const auto visibleCount = getVisibleButtonCount(VERTICAL ? Vector2D((double)barBox->height, (double)barBox->width) : Vector2D((double)barBox->width, (double)barBox->height), scale);
     const auto COORDS = cursorRelativeToBar();
 
+    const bool BUTTONSRIGHT = gPlugin->bar_buttons_alignment != "left";
     const float iconReserved = gPlugin->decoration_appicon_enabled ? (VERTICAL ? barBox->width : barBox->height) : 0;
     double offset = (gPlugin->decoration_padding * scale) + (BUTTONSRIGHT ? 0 : iconReserved);
     float noScaleOffset = gPlugin->decoration_padding + (BUTTONSRIGHT ? 0 : iconReserved / scale);
@@ -684,7 +670,6 @@ void CHyprWindowDecorator::renderBarButtonsText(CBox *barBox, const float scale,
         // check if hovering here
         bool hovering = (hoveredIdx == (int)i);
 
-        // DEBUG_LOG("Rendering button {} at offset {}, hovering: {}", i, offset, hovering);
 
         CBox pos;
 
@@ -778,7 +763,6 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     CHyprColor color = m_cRealBarColor->value();
 
     color.a *= a;
-    const bool BUTTONSRIGHT = gPlugin->bar_buttons_alignment != "left";
     const bool SHOULDBLUR = gPlugin->bar_blur && color.a < 1.F;
     const auto PWORKSPACE = PWINDOW->m_workspace;
     const auto WORKSPACEOFFSET = PWORKSPACE && !PWINDOW->m_pinned ? PWORKSPACE->m_renderOffset->value() : Vector2D();
@@ -1152,7 +1136,7 @@ eDecorationType CHyprWindowDecorator::getDecorationType()
     return DECORATION_CUSTOM;
 }
 
-void CHyprWindowDecorator::updateWindow(PHLWINDOW pWindow)
+void CHyprWindowDecorator::updateWindow([[maybe_unused]] PHLWINDOW pWindow)
 {
     damageEntire();
 }

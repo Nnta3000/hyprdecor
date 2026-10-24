@@ -22,7 +22,7 @@ APICALL EXPORT std::string PLUGIN_API_VERSION()
     return HYPRLAND_API_VERSION;
 }
 
-static void onNewWindow(void *self, std::any data)
+static void onNewWindow([[maybe_unused]] void *self, std::any data)
 {
     // data is guaranteed
     const auto PWINDOW = std::any_cast<PHLWINDOW>(data);
@@ -40,8 +40,6 @@ static void onNewWindow(void *self, std::any data)
         }
 
         auto bar = makeUnique<CHyprWindowDecorator>(PWINDOW);
-        auto barRaw = bar.get();
-        barRaw->m_self = barRaw;
         HyprlandAPI::addWindowDecoration(gPlugin->m_pHandle, PWINDOW, std::move(bar));
 
         // Track the window, never the decorator: the decorator is owned by Hyprland
@@ -53,7 +51,7 @@ static void onNewWindow(void *self, std::any data)
 
 // window.destroy carries a PHLWINDOWREF which may already be expired. Expired entries
 // are pruned here; the live match is dropped by pointer comparison.
-static void onWindowDestroyed(void *self, PHLWINDOWREF ref)
+static void onWindowDestroyed([[maybe_unused]] void *self, PHLWINDOWREF ref)
 {
     if (!gPlugin)
         return;
