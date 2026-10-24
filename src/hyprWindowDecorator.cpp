@@ -137,6 +137,7 @@ void CHyprWindowDecorator::onPositioningReply(const SDecorationPositioningReply 
 {
     if (reply.assignedGeometry.size() != m_bAssignedBox.size())
         m_bWindowSizeChanged = true;
+        m_bNeedsReposition = true;
 
     m_bAssignedBox = reply.assignedGeometry;
 }
@@ -723,9 +724,14 @@ void CHyprWindowDecorator::draw(PHLMONITOR pMonitor, const float &a)
 {
     gPlugin->loadAllTextures();
 
-    if (m_bLastEnabledState != gPlugin->enabled || m_bWindowSizeChanged)
+    // Consume the reposition request here, where it is acted on. m_bWindowSizeChanged
+    // itself must stay true until renderPass() has rebuilt the textures, otherwise the
+    // frame would never update. Previously nothing cleared the request, so once it was
+    // set, repositionDeco() ran every frame.
+    if (m_bLastEnabledState != gPlugin->enabled || m_bNeedsReposition)
     {
         m_bLastEnabledState = gPlugin->enabled;
+        m_bNeedsReposition = false;
         g_pDecorationPositioner->repositionDeco(this);
     }
 
