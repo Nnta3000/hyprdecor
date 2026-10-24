@@ -228,9 +228,21 @@ static T *const *pluginConfigPtr(HANDLE handle, const char *name)
 }
 
 // Dereference a plugin STRING config pointer safely.
-static std::string pluginConfigString(const Hyprlang::STRING *const *ptr)
+// Keeps the existing value when the option is unavailable, instead of blanking it.
+static std::string pluginConfigString(const Hyprlang::STRING *const *ptr, const std::string &current = {})
 {
-    return (ptr && *ptr) ? std::string(**ptr) : std::string();
+    return (ptr && *ptr) ? std::string(**ptr) : current;
+}
+
+// Same for colours: fall back to the value already in effect.
+static CHyprColor pluginConfigColor(const Hyprlang::INT *const *ptr, const CHyprColor &current)
+{
+    return (ptr && *ptr) ? CHyprColor((uint64_t)**ptr) : current;
+}
+
+static CHyprColor pluginConfigColor(const Hyprlang::INT *const *ptr, uint64_t fallback)
+{
+    return (ptr && *ptr) ? CHyprColor((uint64_t)**ptr) : CHyprColor(fallback);
 }
 
 // Safe reads: legacy addConfigValue() registrations are not committed by the Lua
@@ -376,22 +388,22 @@ void CPlugin::update()
     auto *const POUTLINEWIDTH = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:bar_outline_width");
     auto *const POUTLINEALWAYS = pluginConfigPtr<Hyprlang::INT>(m_pHandle, "plugin:hyprdecor:bar_outline_always");
 
-    bar_color = CHyprColor(cfgInt(PBARCOLOR, 0));
+    bar_color = pluginConfigColor(PBARCOLOR, 0x88333333);
     decoration_offset_top = cfgInt(PHEIGHT, 0);
-    col_text = CHyprColor(cfgInt(PTEXTCOL, 0));
+    col_text = pluginConfigColor(PTEXTCOL, 0xffffffff);
     decoration_title_size = cfgInt(PTEXTSIZE, 10);
     decoration_title_enabled = cfgInt(PTITLEENABLED, 1);
     bar_blur = cfgInt(PBARBLUR, 0);
-    bar_text_font = pluginConfigString(PTEXTFONT);
+    bar_text_font = pluginConfigString(PTEXTFONT, bar_text_font);
     decoration_title_align = cfgFloat(PTEXTALIGN, 0.5F);
-    decoration_title_placement = pluginConfigString(PTEXTPLACE);
+    decoration_title_placement = pluginConfigString(PTEXTPLACE, decoration_title_placement);
     bar_part_of_window = cfgInt(PPARTOW, 1);
     bar_precedence_over_border = cfgInt(PPRECEDENCE, 0);
-    bar_buttons_alignment = pluginConfigString(PALIGNBUTTONS);
+    bar_buttons_alignment = pluginConfigString(PALIGNBUTTONS, bar_buttons_alignment);
     decoration_padding = cfgInt(PPADDING, 7);
     bar_button_padding = cfgInt(PBUTPADDING, 5);
     enabled = cfgInt(PENABLED, 1);
-    on_double_click = pluginConfigString(PONDOUBLECLICK);
+    on_double_click = pluginConfigString(PONDOUBLECLICK, on_double_click);
 
     const std::string PTEXTURE_STR = pluginConfigString(PTEXTURE);
 
