@@ -204,8 +204,23 @@ namespace NinePatch {
         return (info.border[0] + info.border[2]) * scale > destW || (info.border[1] + info.border[3]) * scale > destH;
     }
 
+    // Resampling used when the art is stretched. This is where blur actually happens:
+    // the frame is composed into a canvas already scaled to device pixels, so Cairo
+    // resamples the source art long before OpenGL samples the finished texture. A
+    // GL_NEAREST texture filter therefore cannot make already-blurred pixels sharp.
+    enum class eFilter : uint8_t {
+        Nearest = 0, // pixel art: hard edges
+        Bilinear,    // smooth
+    };
+
+    inline cairo_filter_t toCairoFilter(eFilter f)
+    {
+        return f == eFilter::Nearest ? CAIRO_FILTER_NEAREST : CAIRO_FILTER_BILINEAR;
+    }
+
     // Draws a source region into a destination region, scaling to fit.
-    inline void drawSized(cairo_t *cr, cairo_surface_t *surface, double sx, double sy, double sw, double sh, double dx, double dy, double dw, double dh)
+    inline void drawSized(cairo_t *cr, cairo_surface_t *surface, double sx, double sy, double sw, double sh, double dx, double dy, double dw, double dh,
+                          eFilter filter = eFilter::Bilinear)
     {
         if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0)
             return;
@@ -215,13 +230,20 @@ namespace NinePatch {
         cairo_clip(cr);
         cairo_translate(cr, dx, dy);
         cairo_scale(cr, dw / sw, dh / sh);
+
+        // The filter must be set AFTER the scale. Cairo bakes the sampling transform
+        // into the pattern when it is created, so setting it before cairo_scale() has
+        // no effect (verified: bilinear produced 0 blended pixels in that order).
         cairo_set_source_surface(cr, surface, -sx, -sy);
+        cairo_pattern_set_filter(cairo_get_source(cr), toCairoFilter(filter));
+
         cairo_paint(cr);
         cairo_restore(cr);
     }
 
     // Draws a source region tiled into a destination region.
-    inline void drawRepeated(cairo_t *cr, cairo_surface_t *surface, double sx, double sy, double sw, double sh, double dx, double dy, double dw, double dh)
+    inline void drawRepeated(cairo_t *cr, cairo_surface_t *surface, double sx, double sy, double sw, double sh, double dx, double dy, double dw, double dh,
+                             eFilter filter = eFilter::Bilinear)
     {
         if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0)
             return;
@@ -236,9 +258,13 @@ namespace NinePatch {
         cairo_paint(tcr);
         cairo_destroy(tcr);
 
+        // Translate first: the pattern bakes in the transform at creation time, the
+        // same ordering constraint as drawSized().
+        cairo_translate(cr, dx, dy);
+
         cairo_pattern_t *pat = cairo_pattern_create_for_surface(tile);
         cairo_pattern_set_extend(pat, CAIRO_EXTEND_REPEAT);
-        cairo_translate(cr, dx, dy);
+        cairo_pattern_set_filter(pat, toCairoFilter(filter));
         cairo_set_source(cr, pat);
         cairo_paint(cr);
 

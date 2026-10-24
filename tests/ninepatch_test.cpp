@@ -397,6 +397,65 @@ static void testArtScale()
     CHECK(BIG.dy[1] <= BIG.dy[2], "degraded grid must still be ordered");
 }
 
+// Cairo, not OpenGL, does the resampling that blurs stretched frame art. Nearest must
+// keep a hard checkerboard; bilinear must introduce intermediate values.
+static void testCairoFilter()
+{
+    header("resampling filter: nearest keeps hard edges, bilinear blends");
+
+    // 2x2 checkerboard in a 2x2 source.
+    cairo_surface_t *src = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 2, 2);
+    cairo_t *sc = cairo_create(src);
+    cairo_set_source_rgb(sc, 1, 1, 1);
+    cairo_paint(sc); // white base, then black on the diagonal
+    cairo_set_source_rgb(sc, 0, 0, 0);
+    cairo_rectangle(sc, 0, 0, 1, 1);
+    cairo_rectangle(sc, 1, 1, 1, 1);
+    cairo_fill(sc);
+    cairo_destroy(sc);
+    cairo_surface_flush(src);
+
+    const auto RENDER = [&](NinePatch::eFilter filter) {
+        cairo_surface_t *out = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 16, 16);
+        cairo_t *cr = cairo_create(out);
+        cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+        NinePatch::drawSized(cr, src, 0, 0, 2, 2, 0, 0, 16, 16, filter);
+        cairo_destroy(cr);
+        cairo_surface_flush(out);
+        return out;
+    };
+
+    const auto countIntermediates = [](cairo_surface_t *s) {
+        int n = 0;
+        for (int y = 0; y < 16; ++y)
+            for (int x = 0; x < 16; ++x)
+            {
+                const auto V = pixelAt(s, x, y) & 0xFF;
+                if (V > 8 && V < 247)
+                    ++n;
+            }
+        return n;
+    };
+
+    cairo_surface_t *nearest  = RENDER(NinePatch::eFilter::Nearest);
+    cairo_surface_t *bilinear = RENDER(NinePatch::eFilter::Bilinear);
+
+    const int NEARESTGREYS  = countIntermediates(nearest);
+    const int BILINEARGREYS = countIntermediates(bilinear);
+    std::printf("  intermediate pixels: nearest=%d bilinear=%d\n", NEARESTGREYS, BILINEARGREYS);
+
+    CHECK(NEARESTGREYS == 0, "nearest must produce only pure black/white, got %d blended pixels", NEARESTGREYS);
+    CHECK(BILINEARGREYS > 0, "bilinear should blend at the seams, got %d", BILINEARGREYS);
+
+    // Nearest must also reproduce exact 8x8 blocks.
+    CHECK((pixelAt(nearest, 0, 0) & 0xFF) == (pixelAt(nearest, 7, 7) & 0xFF), "nearest block 0 should be uniform");
+    CHECK((pixelAt(nearest, 0, 0) & 0xFF) != (pixelAt(nearest, 8, 0) & 0xFF), "nearest should switch cleanly at the midpoint");
+
+    cairo_surface_destroy(nearest);
+    cairo_surface_destroy(bilinear);
+    cairo_surface_destroy(src);
+}
+
 int main()
 {
     std::printf("hyprdecor nine-patch tests\n");
@@ -410,6 +469,7 @@ int main()
     testMalformedInput();
     testFrameBox();
     testArtScale();
+    testCairoFilter();
 
     std::printf("\n%s (%d failure%s)\n", g_failures ? "FAILED" : "ALL PASSED", g_failures, g_failures == 1 ? "" : "s");
     return g_failures ? 1 : 0;

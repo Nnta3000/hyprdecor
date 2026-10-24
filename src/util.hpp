@@ -69,14 +69,16 @@ inline cairo_surface_t *loadSurface(std::string path, SNinePatchInfo *pInfo = nu
     return out;
 }
 
-inline void drawSizedSurface(cairo_t *cr, cairo_surface_t *surface, double sx, double sy, double sw, double sh, double dx, double dy, double dw, double dh)
+inline void drawSizedSurface(cairo_t *cr, cairo_surface_t *surface, double sx, double sy, double sw, double sh, double dx, double dy, double dw, double dh,
+                             NinePatch::eFilter filter = NinePatch::eFilter::Bilinear)
 {
-    NinePatch::drawSized(cr, surface, sx, sy, sw, sh, dx, dy, dw, dh);
+    NinePatch::drawSized(cr, surface, sx, sy, sw, sh, dx, dy, dw, dh, filter);
 }
 
-inline void drawRepeatedSurface(cairo_t *cr, cairo_surface_t *surface, double sx, double sy, double sw, double sh, double dx, double dy, double dw, double dh)
+inline void drawRepeatedSurface(cairo_t *cr, cairo_surface_t *surface, double sx, double sy, double sw, double sh, double dx, double dy, double dw, double dh,
+                                NinePatch::eFilter filter = NinePatch::eFilter::Bilinear)
 {
-    NinePatch::drawRepeated(cr, surface, sx, sy, sw, sh, dx, dy, dw, dh);
+    NinePatch::drawRepeated(cr, surface, sx, sy, sw, sh, dx, dy, dw, dh, filter);
 }
 
 // Uploads a cairo image surface into an OpenGL texture.
