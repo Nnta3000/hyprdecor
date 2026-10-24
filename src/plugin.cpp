@@ -143,6 +143,25 @@ Hyprlang::CParseResult onNewButtonTextured([[maybe_unused]] const char *K, const
 
 void CPlugin::loadAllTextures()
 {
+    // Elements: keep m_vElements in sync with the configured list, then load lazily.
+    if (m_vElements.size() != cfg.elements.size())
+    {
+        std::vector<SElementTex> rebuilt(cfg.elements.size());
+        for (size_t i = 0; i < cfg.elements.size(); ++i)
+            rebuilt[i].cfg = cfg.elements[i];
+        m_vElements = std::move(rebuilt);
+    }
+
+    for (auto &element : m_vElements)
+    {
+        if (element.tex->m_texID == 0 && !element.cfg.path.empty())
+        {
+            loadTexture(element.cfg.path, element.tex, cfg.linearFiltering);
+            if (element.tex->m_texID != 0)
+                element.naturalSize = element.tex->m_size;
+        }
+    }
+
     // load textures if they exist and are not loaded
     for (auto &button : m_vButtons)
     {
