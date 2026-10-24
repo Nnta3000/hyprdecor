@@ -151,6 +151,23 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
 
 APICALL EXPORT void PLUGIN_EXIT()
 {
+    // Decorations are owned by Hyprland and their vtables point into this .so. They
+    // MUST be removed before the library is unloaded, otherwise the next frame calls
+    // into unmapped memory.
+    if (gPlugin)
+    {
+        for (const auto &ref : gPlugin->m_vWindows)
+        {
+            const auto W = ref.lock();
+            if (!W)
+                continue;
+
+            if (auto deco = CPlugin::decoratorFor(W))
+                W->removeWindowDeco(deco);
+        }
+        gPlugin->m_vWindows.clear();
+    }
+
     if (gPlugin) {
         for (auto &m : Compat::monitors()) {
             if (m)
