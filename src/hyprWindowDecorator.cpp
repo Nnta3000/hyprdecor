@@ -938,8 +938,14 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                 const int ESCALE = element.cfg.scale.value_or(std::max(1, gPlugin->cfg.artScale));
                 const double S = (double)ESCALE;
 
-                double W = element.cfg.width > 0 ? element.cfg.width * pMonitor->m_scale : element.naturalSize.x * S;
-                double H = element.cfg.height > 0 ? element.cfg.height * pMonitor->m_scale : element.naturalSize.y * S;
+                // naturalSize is in SOURCE pixels, so it must be multiplied by both the
+                // art scale and the monitor scale - exactly like the border grid, which
+                // uses monitorScale * artScale. Omitting the monitor factor made
+                // elements render at half the border's scale on a HiDPI output.
+                const double DEV = S * pMonitor->m_scale;
+
+                double W = element.cfg.width > 0 ? element.cfg.width * pMonitor->m_scale : element.naturalSize.x * DEV;
+                double H = element.cfg.height > 0 ? element.cfg.height * pMonitor->m_scale : element.naturalSize.y * DEV;
 
                 const double OX = element.cfg.offsetX * pMonitor->m_scale;
                 const double OY = element.cfg.offsetY * pMonitor->m_scale;
@@ -967,16 +973,16 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                     // natural height, so its top and bottom bands are drawn unscaled
                     // and the vertical middle contributes nothing.
                     if (!element.cfg.stretchVertical)
-                        H = (element.npi.border[1] + element.npi.border[3]) * S;
+                        H = (element.npi.border[1] + element.npi.border[3]) * DEV;
 
                     // Optional cap: never stretch beyond max_stretch source pixels.
                     if (element.cfg.maxStretch && *element.cfg.maxStretch > 0)
                     {
-                        const double FIXED = (element.npi.border[0] + element.npi.border[2]) * S;
-                        W = std::min(W, FIXED + *element.cfg.maxStretch * S);
+                        const double FIXED = (element.npi.border[0] + element.npi.border[2]) * DEV;
+                        W = std::min(W, FIXED + *element.cfg.maxStretch * DEV);
                     }
 
-                    const auto GRID = NinePatch::layout(element.npi, SRCW, SRCH, W, H, S);
+                    const auto GRID = NinePatch::layout(element.npi, SRCW, SRCH, W, H, DEV);
 
                     // Draw the 9 cells; for horizontal-only stretch we collapse the
                     // vertical middle band by using the same destination rows.
