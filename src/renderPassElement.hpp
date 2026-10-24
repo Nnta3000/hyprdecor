@@ -9,16 +9,22 @@ public:
   struct SBarData
   {
     CHyprWindowDecorator *deco = nullptr;
+    PHLMONITOR pMonitor = nullptr;
     float a = 1.F;
   };
 
   CRenderPassElement(const SBarData &data_);
   virtual ~CRenderPassElement() = default;
 
-  virtual void draw(const CRegion &damage);
+  virtual std::vector<UP<IPassElement>> draw();
   virtual bool needsLiveBlur();
   virtual bool needsPrecomputeBlur();
   virtual std::optional<CBox> boundingBox();
+
+  virtual ePassElementType type()
+  {
+    return EK_CUSTOM;
+  }
 
   virtual const char *passName()
   {

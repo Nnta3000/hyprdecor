@@ -7,11 +7,15 @@
 #include <hyprland/src/managers/SeatManager.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/render/Renderer.hpp>
-#include <hyprland/src/managers/LayoutManager.hpp>
+#include <hyprland/src/layout/LayoutManager.hpp>
 #include <hyprland/src/config/ConfigManager.hpp>
-#include <hyprland/src/managers/animation/AnimationManager.hpp>
+#include <hyprland/src/animation/AnimationManager.hpp>
+#include <hyprland/src/config/shared/animation/AnimationTree.hpp>
 #include <hyprland/src/protocols/LayerShell.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
+#include <hyprland/src/render/gl/GLTexture.hpp>
+#include <hyprland/src/event/EventBus.hpp>
+#include <libdrm/drm_fourcc.h>
 #include <pango/pangocairo.h>
 #include <filesystem>
 #include <fstream>
@@ -19,6 +23,7 @@
 
 #include "renderPassElement.hpp"
 #include "plugin.hpp"
+#include "compat.hpp"
 #include "util.hpp"
 
 CHyprWindowDecorator::CHyprWindowDecorator(PHLWINDOW pWindow) : IHyprWindowDecoration(pWindow)
@@ -28,49 +33,53 @@ CHyprWindowDecorator::CHyprWindowDecorator(PHLWINDOW pWindow) : IHyprWindowDecor
     const auto PMONITOR = pWindow->m_monitor.lock();
     PMONITOR->m_scheduledRecalc = true;
 
-    m_pAppIconTex = makeShared<CTexture>();
+    m_pAppIconTex = makeShared<Render::GL::CGLTexture>();
 
-    // button events
-    m_pMouseButtonCallback = HyprlandAPI::registerCallbackDynamic(
-        gPlugin->m_pHandle, "mouseButton", [&](void *self, SCallbackInfo &info, std::any param)
-        { onMouseButton(info, std::any_cast<IPointer::SButtonEvent>(param)); });
-    m_pTouchDownCallback = HyprlandAPI::registerCallbackDynamic(
-        gPlugin->m_pHandle, "touchDown", [&](void *self, SCallbackInfo &info, std::any param)
-        { onTouchDown(info, std::any_cast<ITouch::SDownEvent>(param)); });
-    m_pTouchUpCallback = HyprlandAPI::registerCallbackDynamic( //
-        gPlugin->m_pHandle, "touchUp", [&](void *self, SCallbackInfo &info, std::any param)
-        { onTouchUp(info, std::any_cast<ITouch::SUpEvent>(param)); });
+    // button events: Event::bus() typed signals replace the deprecated dynamic callbacks.
+    // Each listener is owned by the event bus and removed when the plugin unloads.
+    m_pMouseButtonCallback = Event::bus()->m_events.input.mouse.button.listen(
+        [&](IPointer::SButtonEvent e, Event::SCallbackInfo &info)
+        { onMouseButton(info, e); });
+    m_pTouchDownCallback = Event::bus()->m_events.input.touch.down.listen(
+        [&](ITouch::SDownEvent e, Event::SCallbackInfo &info)
+        { onTouchDown(info, e); });
+    m_pTouchUpCallback = Event::bus()->m_events.input.touch.up.listen(
+        [&](ITouch::SUpEvent e, Event::SCallbackInfo &info)
+        { onTouchUp(info, e); });
 
     // move events
-    m_pTouchMoveCallback = HyprlandAPI::registerCallbackDynamic(
-        gPlugin->m_pHandle, "touchMove", [&](void *self, SCallbackInfo &info, std::any param)
-        { onTouchMove(info, std::any_cast<ITouch::SMotionEvent>(param)); });
-    m_pMouseMoveCallback = HyprlandAPI::registerCallbackDynamic( //
-        gPlugin->m_pHandle, "mouseMove", [&](void *self, SCallbackInfo &info, std::any param)
-        { onMouseMove(std::any_cast<Vector2D>(param)); });
+    m_pTouchMoveCallback = Event::bus()->m_events.input.touch.motion.listen(
+        [&](ITouch::SMotionEvent e, Event::SCallbackInfo &info)
+        { onTouchMove(info, e); });
+    m_pMouseMoveCallback = Event::bus()->m_events.input.mouse.move.listen(
+        [&](Vector2D coords, Event::SCallbackInfo &info)
+        { onMouseMove(coords); });
 
-    m_pTextTex = makeShared<CTexture>();
-    m_pButtonsTex = makeShared<CTexture>();
+    m_pTextTex = makeShared<Render::GL::CGLTexture>();
+    m_pButtonsTex = makeShared<Render::GL::CGLTexture>();
 
-    m_pAppIconTex = makeShared<CTexture>();
-    m_pBarFinalTex = makeShared<CTexture>();
+    m_pAppIconTex = makeShared<Render::GL::CGLTexture>();
+    m_pBarFinalTex = makeShared<Render::GL::CGLTexture>();
 
-    g_pAnimationManager->createAnimation(gPlugin->bar_color, m_cRealBarColor, g_pConfigManager->getAnimationPropertyConfig("border"), pWindow, AVARDAMAGE_NONE);
+    Animation::mgr()->createAnimation(gPlugin->bar_color, m_cRealBarColor, Config::animationTree()->getAnimationPropertyConfig("border"), pWindow, AVARDAMAGE_NONE);
     m_cRealBarColor->setUpdateCallback([&](auto)
                                        { damageEntire(); });
 }
 
 CHyprWindowDecorator::~CHyprWindowDecorator()
 {
-    // Callbacks are automatically cleaned up when the shared pointers are destroyed
-    if (gPlugin)
-        std::erase(gPlugin->m_vBars, this);
+    // Nothing to unregister: CPlugin tracks windows, not decorators, and Hyprland
+    // owns this object. Event listeners are released with their shared pointers.
 }
 
 SDecorationPositioningInfo CHyprWindowDecorator::getPositioningInfo()
 {
     SDecorationPositioningInfo info;
-    info.policy = m_hidden ? DECORATION_POSITION_ABSOLUTE : DECORATION_POSITION_STICKY;
+    // A window frame surrounds the client on all four sides, so it must use ABSOLUTE.
+    // STICKY is documented as "one edge allowed ... any other edge than the one
+    // selected is ignored", which is why a STICKY decoration only ever received a top
+    // strip of geometry (a title bar) instead of a rectangle around the window.
+    info.policy = DECORATION_POSITION_ABSOLUTE;
     info.edges = DECORATION_EDGE_TOP | DECORATION_EDGE_BOTTOM | DECORATION_EDGE_LEFT | DECORATION_EDGE_RIGHT;
     info.priority = gPlugin->bar_precedence_over_border ? 10005 : 5000;
     info.reserved = !gPlugin->decoration_inset;
@@ -85,10 +94,40 @@ SDecorationPositioningInfo CHyprWindowDecorator::getPositioningInfo()
 
     if (gPlugin->enabled && !m_hidden)
     {
-        info.desiredExtents.topLeft.x = (double)(gPlugin->decoration_offset_left + NPI.padding[0] + P);
-        info.desiredExtents.topLeft.y = (double)(gPlugin->decoration_offset_top + NPI.padding[1] + P);
-        info.desiredExtents.bottomRight.x = (double)(gPlugin->decoration_offset_right + NPI.padding[2] + P);
-        info.desiredExtents.bottomRight.y = (double)(gPlugin->decoration_offset_bottom + NPI.padding[3] + P);
+        // setup() thickness is authoritative: it fixes the reserved space even when
+        // the texture has not been parsed, so a missing texture shows an empty frame
+        // instead of collapsing the decoration to nothing.
+        const int T = gPlugin->setup_applied && gPlugin->setup_border_thickness >= 0 ? gPlugin->setup_border_thickness : -1;
+
+        if (T >= 0)
+        {
+            info.desiredExtents.topLeft = Vector2D((double)T, (double)T);
+            info.desiredExtents.bottomRight = Vector2D((double)T, (double)T);
+        }
+        else
+        {
+            info.desiredExtents.topLeft.x = (double)(gPlugin->decoration_offset_left + NPI.padding[0] + P);
+            info.desiredExtents.topLeft.y = (double)(gPlugin->decoration_offset_top + NPI.padding[1] + P);
+            info.desiredExtents.bottomRight.x = (double)(gPlugin->decoration_offset_right + NPI.padding[2] + P);
+            info.desiredExtents.bottomRight.y = (double)(gPlugin->decoration_offset_bottom + NPI.padding[3] + P);
+        }
+    }
+
+    // getPositioningInfo() is called many times per frame, per window: log only when
+    // the values actually change, otherwise this floods the log and costs time on the
+    // compositor's hot path.
+    if (const auto W = m_pWindow.lock())
+    {
+        const auto WSIZE = W->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+        if (WSIZE != m_vLastLoggedSize)
+        {
+            m_vLastLoggedSize = WSIZE;
+            Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] positioning: window {}x{} reserved L{} T{} R{} B{} (policy {})",
+                                                     WSIZE.x, WSIZE.y,
+                                                     info.desiredExtents.topLeft.x, info.desiredExtents.topLeft.y,
+                                                     info.desiredExtents.bottomRight.x, info.desiredExtents.bottomRight.y,
+                                                     info.policy == DECORATION_POSITION_ABSOLUTE ? "ABSOLUTE" : "STICKY"));
+        }
     }
 
     return info;
@@ -116,7 +155,10 @@ bool CHyprWindowDecorator::inputIsValid()
         (g_pSeatManager->m_seatGrab && !g_pSeatManager->m_seatGrab->accepts(m_pWindow->wlSurface()->resource())))
         return false;
 
-    const auto WINDOWATCURSOR = g_pCompositor->vectorToWindowUnified(g_pInputManager->getMouseCoordsInternal(), Desktop::View::RESERVED_EXTENTS | Desktop::View::INPUT_EXTENTS | Desktop::View::ALLOW_FLOATING);
+    const auto HITTESTER = Desktop::viewState()->hitTest();
+    const auto CURSOR = g_pInputManager->getMouseCoordsInternal();
+
+    const auto WINDOWATCURSOR = HITTESTER.windowAt(CURSOR, Desktop::View::RESERVED_EXTENTS | Desktop::View::INPUT_EXTENTS | Desktop::View::ALLOW_FLOATING);
 
     auto focusState = Desktop::focusState();
     auto window = focusState->window();
@@ -131,13 +173,14 @@ bool CHyprWindowDecorator::inputIsValid()
     Vector2D surfaceCoords;
 
     // check top layer
-    g_pCompositor->vectorToLayerSurface(g_pInputManager->getMouseCoordsInternal(), &PMONITOR->m_layerSurfaceLayers[ZWLR_LAYER_SHELL_V1_LAYER_TOP], &surfaceCoords, &foundSurface);
+    if (PMONITOR)
+        HITTESTER.layerSurfaceAt(CURSOR, &PMONITOR->m_layerSurfaceLayers[ZWLR_LAYER_SHELL_V1_LAYER_TOP], &surfaceCoords, &foundSurface);
 
     if (foundSurface)
         return false;
     // check overlay layer
-    g_pCompositor->vectorToLayerSurface(g_pInputManager->getMouseCoordsInternal(), &PMONITOR->m_layerSurfaceLayers[ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY], &surfaceCoords,
-                                        &foundSurface);
+    if (PMONITOR)
+        HITTESTER.layerSurfaceAt(CURSOR, &PMONITOR->m_layerSurfaceLayers[ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY], &surfaceCoords, &foundSurface);
 
     if (foundSurface)
         return false;
@@ -145,7 +188,7 @@ bool CHyprWindowDecorator::inputIsValid()
     return true;
 }
 
-void CHyprWindowDecorator::onMouseButton(SCallbackInfo &info, IPointer::SButtonEvent e)
+void CHyprWindowDecorator::onMouseButton(Event::SCallbackInfo &info, IPointer::SButtonEvent e)
 {
     if (!inputIsValid())
         return;
@@ -163,7 +206,7 @@ void CHyprWindowDecorator::onMouseButton(SCallbackInfo &info, IPointer::SButtonE
     handleDownEvent(info, std::nullopt);
 }
 
-void CHyprWindowDecorator::onTouchDown(SCallbackInfo &info, ITouch::SDownEvent e)
+void CHyprWindowDecorator::onTouchDown(Event::SCallbackInfo &info, ITouch::SDownEvent e)
 {
     // Don't do anything if you're already grabbed a window with another finger
     if (!inputIsValid() || e.touchID != 0)
@@ -172,7 +215,7 @@ void CHyprWindowDecorator::onTouchDown(SCallbackInfo &info, ITouch::SDownEvent e
     handleDownEvent(info, e);
 }
 
-void CHyprWindowDecorator::onTouchUp(SCallbackInfo &info, ITouch::SUpEvent e)
+void CHyprWindowDecorator::onTouchUp(Event::SCallbackInfo &info, ITouch::SUpEvent e)
 {
     if (!m_bDragPending || !m_bTouchEv || e.touchID != m_touchId)
         return;
@@ -195,7 +238,7 @@ void CHyprWindowDecorator::onMouseMove(Vector2D coords)
     handleMovement();
 }
 
-void CHyprWindowDecorator::onTouchMove(SCallbackInfo &info, ITouch::SMotionEvent e)
+void CHyprWindowDecorator::onTouchMove(Event::SCallbackInfo &info, ITouch::SMotionEvent e)
 {
     if (!m_bDragPending || !m_bTouchEv || !validMapped(m_pWindow) || e.touchID != m_touchId)
         return;
@@ -216,7 +259,7 @@ void CHyprWindowDecorator::onTouchMove(SCallbackInfo &info, ITouch::SMotionEvent
     m_bDraggingThis = true;
 }
 
-void CHyprWindowDecorator::handleDownEvent(SCallbackInfo &info, std::optional<ITouch::SDownEvent> touchEvent)
+void CHyprWindowDecorator::handleDownEvent(Event::SCallbackInfo &info, std::optional<ITouch::SDownEvent> touchEvent)
 {
     m_bTouchEv = touchEvent.has_value();
     if (m_bTouchEv)
@@ -228,7 +271,7 @@ void CHyprWindowDecorator::handleDownEvent(SCallbackInfo &info, std::optional<IT
     if (m_bTouchEv)
     {
         ITouch::SDownEvent e = touchEvent.value();
-        auto PMONITOR = g_pCompositor->getMonitorFromName(!e.device->m_boundOutput.empty() ? e.device->m_boundOutput : "");
+        auto PMONITOR = Compat::monitorFromName(!e.device->m_boundOutput.empty() ? e.device->m_boundOutput : "");
         PMONITOR = PMONITOR ? PMONITOR : Desktop::focusState()->monitor();
         COORDS = Vector2D(PMONITOR->m_position.x + e.pos.x * PMONITOR->m_size.x, PMONITOR->m_position.y + e.pos.y * PMONITOR->m_size.y) - assignedBoxGlobal().pos();
     }
@@ -257,10 +300,10 @@ void CHyprWindowDecorator::handleDownEvent(SCallbackInfo &info, std::optional<IT
     m_bCancelledDown = true;
 
     if (Desktop::focusState()->window() != PWINDOW)
-        Desktop::focusState()->fullWindowFocus(PWINDOW);
+        Desktop::focusState()->fullWindowFocus(PWINDOW, Desktop::FOCUS_REASON_CLICK);
 
     if (PWINDOW->m_isFloating)
-        g_pCompositor->changeWindowZOrder(PWINDOW, true);
+        Desktop::windowState()->raise(PWINDOW);
 
     m_iButtonPressedIdx = indexToButton(COORDS);
     if (m_iButtonPressedIdx != -1)
@@ -282,7 +325,7 @@ void CHyprWindowDecorator::handleDownEvent(SCallbackInfo &info, std::optional<IT
     }
 }
 
-void CHyprWindowDecorator::handleUpEvent(SCallbackInfo &info)
+void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
 {
     if (m_pWindow.lock() != Desktop::focusState()->window())
         return;
@@ -381,7 +424,7 @@ int CHyprWindowDecorator::indexToButton(Vector2D COORDS)
     return -1;
 }
 
-void CHyprWindowDecorator::renderText(SP<CTexture> out, const std::string &text, const CHyprColor &color, const Vector2D &bufferSize, const float scale, const int fontSize)
+void CHyprWindowDecorator::renderText(SP<Render::ITexture> out, const std::string &text, const CHyprColor &color, const Vector2D &bufferSize, const float scale, const int fontSize)
 {
     const auto CAIROSURFACE = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, bufferSize.x, bufferSize.y);
     const auto CAIRO = cairo_create(CAIROSURFACE);
@@ -426,17 +469,13 @@ void CHyprWindowDecorator::renderText(SP<CTexture> out, const std::string &text,
 
     // copy the data to an OpenGL texture we have
     const auto DATA = cairo_image_surface_get_data(CAIROSURFACE);
-    out->allocate();
-    glBindTexture(GL_TEXTURE_2D, out->m_texID);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-
-#ifndef GLES2
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_BLUE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
-#endif
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, bufferSize.x, bufferSize.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, DATA);
+    out->allocate(Vector2D{(double)cairo_image_surface_get_width(CAIROSURFACE), (double)cairo_image_surface_get_height(CAIROSURFACE)}, DRM_FORMAT_ARGB8888);
+    out->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    out->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    {
+        CRegion DMG = CBox{0, 0, bufferSize.x, bufferSize.y};
+        out->update(DRM_FORMAT_ARGB8888, DATA, cairo_image_surface_get_stride(CAIROSURFACE), DMG);
+    }
 
     // delete cairo
     cairo_destroy(CAIRO);
@@ -527,17 +566,13 @@ void CHyprWindowDecorator::renderBarTitle(const Vector2D &bufferSize, const floa
 
     // copy the data to an OpenGL texture we have
     const auto DATA = cairo_image_surface_get_data(CAIROSURFACE);
-    m_pTextTex->allocate();
-    glBindTexture(GL_TEXTURE_2D, m_pTextTex->m_texID);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-
-#ifndef GLES2
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_BLUE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
-#endif
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, bufferSize.x, bufferSize.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, DATA);
+    m_pTextTex->allocate(Vector2D{(double)cairo_image_surface_get_width(CAIROSURFACE), (double)cairo_image_surface_get_height(CAIROSURFACE)}, DRM_FORMAT_ARGB8888);
+    m_pTextTex->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    m_pTextTex->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    {
+        CRegion DMG = CBox{0, 0, bufferSize.x, bufferSize.y};
+        m_pTextTex->update(DRM_FORMAT_ARGB8888, DATA, cairo_image_surface_get_stride(CAIROSURFACE), DMG);
+    }
 
     m_pTextTex->m_size = bufferSize;
 
@@ -598,17 +633,13 @@ bool CHyprWindowDecorator::renderBarButtons(const Vector2D &bufferSize, const fl
 
     // copy the data to an OpenGL texture we have
     const auto DATA = cairo_image_surface_get_data(CAIROSURFACE);
-    m_pButtonsTex->allocate();
-    glBindTexture(GL_TEXTURE_2D, m_pButtonsTex->m_texID);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-
-#ifndef GLES2
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_BLUE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
-#endif
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, bufferSize.x, bufferSize.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, DATA);
+    m_pButtonsTex->allocate(Vector2D{(double)cairo_image_surface_get_width(CAIROSURFACE), (double)cairo_image_surface_get_height(CAIROSURFACE)}, DRM_FORMAT_ARGB8888);
+    m_pButtonsTex->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    m_pButtonsTex->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    {
+        CRegion DMG = CBox{0, 0, bufferSize.x, bufferSize.y};
+        m_pButtonsTex->update(DRM_FORMAT_ARGB8888, DATA, cairo_image_surface_get_stride(CAIROSURFACE), DMG);
+    }
 
     m_pButtonsTex->m_size = bufferSize;
 
@@ -662,7 +693,7 @@ void CHyprWindowDecorator::renderBarButtonsText(CBox *barBox, const float scale,
         if (button.texActive->m_texID == 0)
             continue;
 
-        SP<CTexture> tex = button.texActive;
+        SP<Render::ITexture> tex = button.texActive;
         if (!m_bWindowHasFocus)
             tex = button.texInactive;
         if (hovering)
@@ -673,9 +704,9 @@ void CHyprWindowDecorator::renderBarButtonsText(CBox *barBox, const float scale,
         if (tex->m_texID == 0)
             tex = button.texActive;
 
-        CHyprOpenGLImpl::STextureRenderData data;
+        Render::GL::CHyprOpenGLImpl::STextureRenderData data;
         data.a = a;
-        g_pHyprOpenGL->renderTexture(tex, pos, data);
+        Render::GL::g_pHyprOpenGL->renderTexture(tex, pos, data);
         offset += scaledButtonsPad + (VERTICAL ? scaledButtonSizeY : scaledButtonSizeX);
 
         bool currentBit = (m_iButtonHoverState & (1 << i)) != 0;
@@ -706,7 +737,9 @@ void CHyprWindowDecorator::draw(PHLMONITOR pMonitor, const float &a)
     if (!PWINDOW->m_ruleApplicator->decorate().valueOrDefault())
         return;
 
-    auto data = CRenderPassElement::SBarData{this, a};
+    // 0.56 keeps decorations in m_renderPass, a persistent queue consumed when the
+    // pass renders. (addPassElement()/inline drawing belong to a newer API.)
+    auto data = CRenderPassElement::SBarData{this, pMonitor, a};
     g_pHyprRenderer->m_renderPass.add(makeUnique<CRenderPassElement>(data));
 }
 
@@ -735,7 +768,11 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     const auto PWORKSPACE = PWINDOW->m_workspace;
     const auto WORKSPACEOFFSET = PWORKSPACE && !PWINDOW->m_pinned ? PWORKSPACE->m_renderOffset->value() : Vector2D();
 
-    const auto ROUNDING = PWINDOW->rounding() + (gPlugin->bar_precedence_over_border ? 0 : PWINDOW->getRealBorderSize());
+    // Only window rounding matters here: the stencil path below masks out the window
+    // area so the frame does not paint over the client surface. Including the border
+    // size made it engage even with rounding = 0, which masked the whole frame and
+    // left only a black rectangle.
+    const auto ROUNDING = PWINDOW->rounding();
 
     const auto scaledRounding = ROUNDING > 0 ? ROUNDING * pMonitor->m_scale - 2 /* idk why but otherwise it looks bad due to the gaps */ : 0;
 
@@ -744,27 +781,60 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
 
     const auto DECOBOX = assignedBoxGlobal();
 
+    // Never build regions from a degenerate box: pixman rejects them. Log loudly,
+    // because an unassigned box means the positioner never replied and the
+    // decoration would silently never be drawn.
+    if (DECOBOX.w <= 0 || DECOBOX.h <= 0)
+    {
+        const auto RAW = assignedBoxGlobal();
+        Log::logger->log(Log::WARN, std::format("[HYPRDECOR] draw skipped: degenerate decobox {}x{} (raw assigned {}x{} at {},{}), window {}x{} at {},{}",
+                                                DECOBOX.w, DECOBOX.h, RAW.w, RAW.h, RAW.x, RAW.y,
+                                                PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x,
+                                                PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y,
+                                                PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x,
+                                                PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y));
+        return;
+    }
+
     const auto BARBUF = DECOBOX.size() * pMonitor->m_scale;
 
     CBox titleBarBox = {DECOBOX.x - pMonitor->m_position.x, DECOBOX.y - pMonitor->m_position.y, DECOBOX.w, DECOBOX.h};
 
     titleBarBox.scale(pMonitor->m_scale).round();
 
+    // Diagnostics for `hyprctl hyprdecor status`.
+    gPlugin->lastBarW = (int)titleBarBox.w;
+    gPlugin->lastBarH = (int)titleBarBox.h;
+    gPlugin->lastDrawn = true;
+
     if (titleBarBox.w < 1 || titleBarBox.h < 1)
     {
+        Log::logger->log(Log::WARN, std::format("[HYPRDECOR] skipping draw: titleBarBox {}x{}", titleBarBox.w, titleBarBox.h));
         return;
     }
 
-    g_pHyprOpenGL->scissor(titleBarBox);
+    static CBox s_lastLoggedBox;
+    if (DECOBOX != s_lastLoggedBox)
+    {
+        s_lastLoggedBox = DECOBOX;
+        Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] draw: decobox={},{} {}x{} titleBar={},{} {}x{} scale={} surface={} ninepatch={}",
+                                             DECOBOX.x, DECOBOX.y, DECOBOX.w, DECOBOX.h,
+                                             titleBarBox.x, titleBarBox.y, titleBarBox.w, titleBarBox.h,
+                                             pMonitor->m_scale,
+                                             (m_bWindowHasFocus ? gPlugin->activeSurface : gPlugin->inactiveSurface) ? "yes" : "NO",
+                                             (m_bWindowHasFocus ? gPlugin->activeNinepatch : gPlugin->inactiveNinepatch).defined ? "yes" : "NO"));
+    }
+
+    Render::GL::g_pHyprOpenGL->scissor(titleBarBox);
 
     const int PBORDERINSET = gPlugin->decoration_inset;
 
     if (ROUNDING && !PBORDERINSET)
     {
         // the +1 is a shit garbage temp fix until renderRect supports an alpha matte
-        CBox windowBox = {PWINDOW->m_realPosition->value().x - pMonitor->m_position.x + 1,
-                          PWINDOW->m_realPosition->value().y - pMonitor->m_position.y + 1, PWINDOW->m_realSize->value().x - 2,
-                          PWINDOW->m_realSize->value().y - 2};
+        CBox windowBox = {PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x - pMonitor->m_position.x + 1,
+                          PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y - pMonitor->m_position.y + 1, PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x - 2,
+                          PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y - 2};
 
         if (windowBox.w < 1 || windowBox.h < 1)
             return;
@@ -772,7 +842,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
         glClearStencil(0);
         glClear(GL_STENCIL_BUFFER_BIT);
 
-        g_pHyprOpenGL->setCapStatus(GL_STENCIL_TEST, true);
+        Render::GL::g_pHyprOpenGL->setCapStatus(GL_STENCIL_TEST, true);
 
         glStencilFunc(GL_ALWAYS, 1, -1);
         glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
@@ -780,7 +850,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
         glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 
         windowBox.scale(pMonitor->m_scale).round();
-        g_pHyprOpenGL->renderRect(windowBox, CHyprColor(0, 0, 0, 0), {.round = (int)scaledRounding, .roundingPower = m_pWindow->roundingPower()});
+        Render::GL::g_pHyprOpenGL->renderRect(windowBox, CHyprColor(0, 0, 0, 0), {.round = (int)scaledRounding, .roundingPower = m_pWindow->roundingPower()});
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
         glStencilFunc(GL_NOTEQUAL, 1, -1);
@@ -805,11 +875,23 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
             const int sw = cairo_image_surface_get_width(sourceSurface);
             const int sh = cairo_image_surface_get_height(sourceSurface);
 
-            double sx[4] = {0, border[0], sw - border[2], (double)sw};
-            double sy[4] = {0, border[1], sh - border[3], (double)sh};
+            // Grid maths lives in ninepatch.hpp and is covered by unit tests.
+            SNinePatchInfo gridInfo;
+            gridInfo.border[0] = border[0];
+            gridInfo.border[1] = border[1];
+            gridInfo.border[2] = border[2];
+            gridInfo.border[3] = border[3];
+            gridInfo.defined = true;
 
-            double dx[4] = {0, (sx[1] - sx[0]) * pMonitor->m_scale, (double)titleBarBox.width - (sx[3] - sx[2]) * pMonitor->m_scale, (double)titleBarBox.width};
-            double dy[4] = {0, (sy[1] - sy[0]) * pMonitor->m_scale, (double)titleBarBox.height - (sy[3] - sy[2]) * pMonitor->m_scale, (double)titleBarBox.height};
+            const auto GRID = NinePatch::layout(gridInfo, (double)sw, (double)sh, (double)titleBarBox.width, (double)titleBarBox.height, pMonitor->m_scale);
+
+            if (GRID.degraded)
+                Log::logger->log(Log::WARN, std::format("[HYPRDECOR] frame too large for its box ({}x{} at scale {}); scaling to fit", sw, sh, pMonitor->m_scale));
+
+            const double *sx = GRID.sx;
+            const double *sy = GRID.sy;
+            const double *dx = GRID.dx;
+            const double *dy = GRID.dy;
 
             for (int i = 0; i < 3; ++i)
             {
@@ -845,8 +927,16 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
             }
 
             cairo_surface_flush(CAIROSURFACE);
+
             const auto DATA = cairo_image_surface_get_data(CAIROSURFACE);
-            m_pBarFinalTex->allocate();
+            const int BFW = cairo_image_surface_get_width(CAIROSURFACE);
+            const int BFH = cairo_image_surface_get_height(CAIROSURFACE);
+
+            // Direct GL upload. This is the path that demonstrably rendered on screen;
+            // the CGLTexture::update(DRM_FORMAT_ARGB8888, ...) variant uploaded nothing
+            // and left the texture black. Cairo ARGB32 memory is BGRA in little-endian,
+            // which GL_RGBA + R/B swizzle maps back to RGBA correctly.
+            m_pBarFinalTex->allocate(Vector2D{(double)BFW, (double)BFH});
             glBindTexture(GL_TEXTURE_2D, m_pBarFinalTex->m_texID);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gPlugin->ninepatch_linear_filtering ? GL_LINEAR : GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gPlugin->ninepatch_linear_filtering ? GL_LINEAR : GL_NEAREST);
@@ -854,27 +944,58 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_BLUE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
 #endif
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, titleBarBox.width, titleBarBox.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, DATA);
-            m_pBarFinalTex->m_size = {(double)titleBarBox.width, (double)titleBarBox.height};
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, BFW, BFH, 0, GL_RGBA, GL_UNSIGNED_BYTE, DATA);
+
+            m_pBarFinalTex->m_size = {(double)BFW, (double)BFH};
+
+            // Sample the BORDER, not the centre: with alpha 0 the centre is transparent
+            // by design and sampling it says nothing.
+            {
+                const auto *PX = (const uint32_t *)DATA;
+                const uint32_t TL = PX[0];
+                const uint32_t MIDLEFT = PX[(BFH / 2) * BFW + 2];
+                const uint32_t MIDTOP = PX[2 * BFW + BFW / 2];
+                Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] composed {}x{}: TL=0x{:08x} mid-left=0x{:08x} mid-top=0x{:08x}",
+                                                         BFW, BFH, TL, MIDLEFT, MIDTOP));
+            }
 
             cairo_destroy(CAIRO);
             cairo_surface_destroy(CAIROSURFACE);
             m_bNinePatchChanged = false;
         }
-        CHyprOpenGLImpl::STextureRenderData data;
+        Render::GL::CHyprOpenGLImpl::STextureRenderData data;
         data.a = a;
-        g_pHyprOpenGL->renderTexture(m_pBarFinalTex, titleBarBox, data);
+        Render::GL::g_pHyprOpenGL->renderTexture(m_pBarFinalTex, titleBarBox, data);
     }
     else
     {
         if (SHOULDBLUR)
-            g_pHyprOpenGL->renderRect(titleBarBox, color, {.round = (int)scaledRounding, .roundingPower = m_pWindow->roundingPower(), .blur = true, .blurA = a});
+            Render::GL::g_pHyprOpenGL->renderRect(titleBarBox, color, {.round = (int)scaledRounding, .roundingPower = m_pWindow->roundingPower(), .blur = true, .blurA = a});
         else
-            g_pHyprOpenGL->renderRect(titleBarBox, color, {.round = (int)scaledRounding, .roundingPower = m_pWindow->roundingPower()});
+            Render::GL::g_pHyprOpenGL->renderRect(titleBarBox, color, {.round = (int)scaledRounding, .roundingPower = m_pWindow->roundingPower()});
     }
 
     if (m_bWindowSizeChanged)
         m_bButtonsDirty = true;
+
+    // Plain solid outline, drawn on top of whatever was rendered above.
+    // `bar_outline_always = false` restricts it to the no-texture fallback.
+    if (gPlugin->bar_outline_width > 0 && (gPlugin->bar_outline_always || !sourceSurface))
+    {
+        CHyprColor outlineColor = gPlugin->bar_outline_color;
+        outlineColor.a *= a;
+
+        const double THICK = std::max(1.0, (double)std::round(gPlugin->bar_outline_width * pMonitor->m_scale));
+        const CBox &B = titleBarBox;
+
+        const Render::GL::CHyprOpenGLImpl::SRectRenderData RECTDATA{.round = 0, .roundingPower = m_pWindow->roundingPower()};
+
+        // top, bottom, left, right
+        Render::GL::g_pHyprOpenGL->renderRect(CBox{B.x, B.y, B.w, THICK}, outlineColor, RECTDATA);
+        Render::GL::g_pHyprOpenGL->renderRect(CBox{B.x, B.y + B.h - THICK, B.w, THICK}, outlineColor, RECTDATA);
+        Render::GL::g_pHyprOpenGL->renderRect(CBox{B.x, B.y + THICK, THICK, B.h - 2 * THICK}, outlineColor, RECTDATA);
+        Render::GL::g_pHyprOpenGL->renderRect(CBox{B.x + B.w - THICK, B.y + THICK, THICK, B.h - 2 * THICK}, outlineColor, RECTDATA);
+    }
 
     const auto P = gPlugin->decoration_padding;
     CBox topBarBox;
@@ -925,8 +1046,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
             // Reset the texture
             if (m_pAppIconTex->m_texID != 0)
             {
-                m_pAppIconTex->destroyTexture();
-                m_pAppIconTex = makeShared<CTexture>();
+                m_pAppIconTex = makeShared<Render::GL::CGLTexture>();
             }
 
             loadAppIcon(appId, m_pAppIconTex, iconSizeDesired);
@@ -947,9 +1067,9 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                 iconPad = (int)std::round(topBarBox.width * 0.2);
                 iconBox = {topBarBox.x + (int)std::round((topBarBox.width - ATEXSIZE.x) / 2.0) + gPlugin->decoration_appicon_offset.x * pMonitor->m_scale, topBarBox.y + iconPad + gPlugin->decoration_appicon_offset.y * pMonitor->m_scale, ATEXSIZE.x, ATEXSIZE.y};
             }
-            CHyprOpenGLImpl::STextureRenderData data;
+            Render::GL::CHyprOpenGLImpl::STextureRenderData data;
             data.a = a;
-            g_pHyprOpenGL->renderTexture(m_pAppIconTex, iconBox, data);
+            Render::GL::g_pHyprOpenGL->renderTexture(m_pAppIconTex, iconBox, data);
         }
     }
 
@@ -965,7 +1085,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
         // cleanup stencil
         glClearStencil(0);
         glClear(GL_STENCIL_BUFFER_BIT);
-        g_pHyprOpenGL->setCapStatus(GL_STENCIL_TEST, false);
+        Render::GL::g_pHyprOpenGL->setCapStatus(GL_STENCIL_TEST, false);
         glStencilMask(-1);
         glStencilFunc(GL_ALWAYS, 1, 0xFF);
     }
@@ -974,9 +1094,9 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     {
         // render title texture at full bar size (text is already positioned within the texture)
         CBox textBox = {topBarBox.x, topBarBox.y, (double)m_pTextTex->m_size.x, (double)m_pTextTex->m_size.y};
-        CHyprOpenGLImpl::STextureRenderData data;
+        Render::GL::CHyprOpenGLImpl::STextureRenderData data;
         data.a = a;
-        g_pHyprOpenGL->renderTexture(m_pTextTex, textBox, data);
+        Render::GL::g_pHyprOpenGL->renderTexture(m_pTextTex, textBox, data);
     }
 
     if (m_bButtonsDirty || m_bWindowSizeChanged)
@@ -987,12 +1107,12 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
 
     if (m_pButtonsTex->m_texID)
     {
-        CHyprOpenGLImpl::STextureRenderData data;
+        Render::GL::CHyprOpenGLImpl::STextureRenderData data;
         data.a = a;
-        g_pHyprOpenGL->renderTexture(m_pButtonsTex, topBarBox, data);
+        Render::GL::g_pHyprOpenGL->renderTexture(m_pButtonsTex, topBarBox, data);
     }
 
-    g_pHyprOpenGL->scissor(nullptr);
+    Render::GL::g_pHyprOpenGL->scissor(nullptr);
 
     renderBarButtonsText(&topBarBox, pMonitor->m_scale, a);
 
@@ -1000,10 +1120,15 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     m_bTitleColorChanged = false;
     m_bButtonsDirty = false;
 
-    // dynamic updates change the extents
+    // The extents changed, so the layout must be recalculated -- but NEVER from inside
+    // a render pass. recalculateMonitor() mutates window geometry while the renderer is
+    // iterating windows, and the second window to open would drop the first. Defer it
+    // to the main loop instead.
     if (m_iLastHeight != gPlugin->decoration_offset_top)
     {
-        g_pLayoutManager->getCurrentLayout()->recalculateWindow(PWINDOW);
+        // Record only. Forcing recalculateMonitor() here threw the newly laid-out
+        // window back to an output-sized box; a fullscreen cycle is the only thing that
+        // recomputes it correctly, which is why the bug "fixed itself" that way.
         m_iLastHeight = gPlugin->decoration_offset_top;
     }
 }
@@ -1070,8 +1195,16 @@ CBox CHyprWindowDecorator::assignedBoxGlobal()
 
     const auto PWINDOW = m_pWindow.lock();
 
-    CBox box = m_bAssignedBox;
-    box.translate(PWINDOW->m_realPosition->value());
+    // Under DECORATION_POSITION_ABSOLUTE Hyprland replies with an EMPTY
+    // assignedGeometry ("assignedGeometry is empty" in DecorationPositioner.hpp), so the
+    // box must be derived from the window plus the reserved extents rather than read
+    // from m_bAssignedBox.
+    const auto INFO = getPositioningInfo();
+
+    CBox box = {PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x - INFO.desiredExtents.topLeft.x,
+                PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y - INFO.desiredExtents.topLeft.y,
+                PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x + INFO.desiredExtents.topLeft.x + INFO.desiredExtents.bottomRight.x,
+                PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y + INFO.desiredExtents.topLeft.y + INFO.desiredExtents.bottomRight.y};
 
     const auto PWORKSPACE = PWINDOW->m_workspace;
     if (PWORKSPACE && !PWINDOW->m_pinned)
@@ -1098,9 +1231,9 @@ void CHyprWindowDecorator::updateRules()
     if (PWINDOW->m_ruleApplicator->m_otherProps.props.contains(gPlugin->m_nobarRuleIdx))
         m_hidden = truthy(PWINDOW->m_ruleApplicator->m_otherProps.props.at(gPlugin->m_nobarRuleIdx)->effect);
     if (PWINDOW->m_ruleApplicator->m_otherProps.props.contains(gPlugin->m_barColorRuleIdx))
-        m_bForcedBarColor = CHyprColor(configStringToInt(PWINDOW->m_ruleApplicator->m_otherProps.props.at(gPlugin->m_barColorRuleIdx)->effect).value_or(0));
+        m_bForcedBarColor = CHyprColor(Compat::configStringToInt(PWINDOW->m_ruleApplicator->m_otherProps.props.at(gPlugin->m_barColorRuleIdx)->effect).value_or(0));
     if (PWINDOW->m_ruleApplicator->m_otherProps.props.contains(gPlugin->m_titleColorRuleIdx))
-        m_bForcedTitleColor = CHyprColor(configStringToInt(PWINDOW->m_ruleApplicator->m_otherProps.props.at(gPlugin->m_titleColorRuleIdx)->effect).value_or(0));
+        m_bForcedTitleColor = CHyprColor(Compat::configStringToInt(PWINDOW->m_ruleApplicator->m_otherProps.props.at(gPlugin->m_titleColorRuleIdx)->effect).value_or(0));
 
     if (prevHidden != m_hidden)
         g_pDecorationPositioner->repositionDeco(this);
@@ -1110,9 +1243,9 @@ void CHyprWindowDecorator::updateRules()
 
 void CHyprWindowDecorator::invalidateTextures()
 {
-    m_pBarFinalTex = makeShared<CTexture>();
-    m_pTextTex = makeShared<CTexture>();
-    m_pButtonsTex = makeShared<CTexture>();
+    m_pBarFinalTex = makeShared<Render::GL::CGLTexture>();
+    m_pTextTex = makeShared<Render::GL::CGLTexture>();
+    m_pButtonsTex = makeShared<Render::GL::CGLTexture>();
 
     // Mark everything as dirty to force full re-render
     m_bWindowSizeChanged = true;

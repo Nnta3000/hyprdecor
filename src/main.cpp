@@ -13,6 +13,8 @@
 
 #include "hyprWindowDecorator.hpp"
 #include "plugin.hpp"
+#include "compat.hpp"
+#include "luaApi.hpp"
 
 // Do NOT change this function.
 APICALL EXPORT std::string PLUGIN_API_VERSION()
@@ -25,17 +27,30 @@ static void onNewWindow(void *self, std::any data)
     // data is guaranteed
     const auto PWINDOW = std::any_cast<PHLWINDOW>(data);
 
+    if (!PWINDOW)
+        return;
+
     if (!PWINDOW->m_X11DoesntWantBorders)
     {
         if (std::ranges::any_of(PWINDOW->m_windowDecorations, [](const auto &d)
-                                { return d->getDisplayName() == "Hyprdecor"; }))
+                                { return d && d->getDisplayName() == "Hyprdecor"; }))
+        {
+            Log::logger->log(Log::DEBUG, "[HYPRDECOR] window already has a hyprdecor decoration, skipping");
             return;
+        }
 
         auto bar = makeUnique<CHyprWindowDecorator>(PWINDOW);
         auto barRaw = bar.get();
         barRaw->m_self = barRaw;
-        gPlugin->m_vBars.push_back(barRaw);
         HyprlandAPI::addWindowDecoration(gPlugin->m_pHandle, PWINDOW, std::move(bar));
+
+        // Track the window, never the decorator: the decorator is owned by Hyprland
+        // and its address is not stable.
+        gPlugin->m_vWindows.push_back(PWINDOW);
+
+        // NOTE: do NOT force a relayout here. The window is already being laid out
+        // with the decoration's extents when it opens; calling recalculateMonitor()
+        // a frame later produced the "window fills the output" state.
     }
 }
 
@@ -44,14 +59,10 @@ static void onCloseWindow(void *self, std::any data)
     // data is guaranteed
     const auto PWINDOW = std::any_cast<PHLWINDOW>(data);
 
-    const auto BARIT = std::find_if(gPlugin->m_vBars.begin(), gPlugin->m_vBars.end(), [PWINDOW](const auto &bar)
-                                    { return bar && bar->getOwner() == PWINDOW; });
-
-    if (BARIT == gPlugin->m_vBars.end())
-        return;
-
-    // we could use the API but this is faster + it doesn't matter here that much.
-    PWINDOW->removeWindowDeco(*BARIT);
+    // Hyprland destroys the window's decorations itself. Only stop tracking the
+    // window; never dereference a decorator pointer that may already be freed.
+    std::erase_if(gPlugin->m_vWindows, [PWINDOW](const auto &ref)
+                  { return ref.lock() == PWINDOW; });
 }
 
 static void onPreConfigReload()
@@ -61,15 +72,9 @@ static void onPreConfigReload()
 
 static void onUpdateWindowRules(PHLWINDOW window)
 {
-    const auto BARIT = std::find_if(gPlugin->m_vBars.begin(), gPlugin->m_vBars.end(), [window](CHyprWindowDecorator *bar)
-                                    { return bar && bar->getOwner() == window; });
-
-    if (BARIT == gPlugin->m_vBars.end())
-        return;
-
-    if (*BARIT)
+    if (auto bar = CPlugin::decoratorFor(window))
     {
-        (*BARIT)->updateRules();
+        bar->updateRules();
         window->updateWindowDecos();
     }
 }
@@ -92,20 +97,38 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
     gPlugin->m_barColorRuleIdx = Desktop::Rule::windowEffects()->registerEffect("hyprdecor:bar_color");
     gPlugin->m_titleColorRuleIdx = Desktop::Rule::windowEffects()->registerEffect("hyprdecor:title_color");
 
-    static auto P = HyprlandAPI::registerCallbackDynamic(gPlugin->m_pHandle, "openWindow", [&](void *self, SCallbackInfo &info, std::any data)
-                                                         { onNewWindow(self, data); });
-    // static auto P2 = HyprlandAPI::registerCallbackDynamic(g_pConfig->m_pHandle, "closeWindow", [&](void* self, SCallbackInfo& info, std::any data) { onCloseWindow(self, data); });
-    static auto P3 = HyprlandAPI::registerCallbackDynamic(gPlugin->m_pHandle, "windowUpdateRules",
-                                                          [&](void *self, SCallbackInfo &info, std::any data)
-                                                          { onUpdateWindowRules(std::any_cast<PHLWINDOW>(data)); });
+    // Structured Lua API: hl.plugin.hyprdecor.setup({...}).
+    // Loading the .so does not create this namespace; only addLuaFunction does.
+    HyprlandAPI::addLuaFunction(gPlugin->m_pHandle, "hyprdecor", "setup", Hyprdecor::Lua::lSetup);
 
-    static auto P4 = HyprlandAPI::registerCallbackDynamic(gPlugin->m_pHandle, "preConfigReload", [&](void *self, SCallbackInfo &info, std::any data)
-                                                          { onPreConfigReload(); });
-    static auto P5 = HyprlandAPI::registerCallbackDynamic(gPlugin->m_pHandle, "configReloaded", [&](void *self, SCallbackInfo &info, std::any data)
-                                                          { gPlugin->update(); });
+    // Event::bus() replaced the deprecated registerCallbackDynamic. Listeners must be kept
+    // alive for the plugin's lifetime, so they are stored on the plugin object.
+    gPlugin->m_vListeners.emplace_back(Event::bus()->m_events.window.open.listen([&](PHLWINDOW w)
+                                                                               { onNewWindow(nullptr, std::any(w)); }));
+    gPlugin->m_vListeners.emplace_back(Event::bus()->m_events.window.updateRules.listen([&](PHLWINDOW w)
+                                                                                      { onUpdateWindowRules(w); }));
+    gPlugin->m_vListeners.emplace_back(Event::bus()->m_events.config.preReload.listen([]()
+                                                                                     { onPreConfigReload(); }));
+    gPlugin->m_vListeners.emplace_back(Event::bus()->m_events.config.reloaded.listen([]()
+                                                                                     { gPlugin->update(); }));
+
+    // Runs deferred work queued from Lua callbacks (CPlugin::requestUpdate()).
+    gPlugin->m_vListeners.emplace_back(Event::bus()->m_events.tick.listen([]()
+                                                                        { gPlugin->processPendingUpdate(); }));
+
+    // Diagnostics: `hyprctl hyprdecor status`
+    static auto PSTATUS = HyprlandAPI::registerHyprCtlCommand(gPlugin->m_pHandle, SHyprCtlCommand{
+                                                                                    .name = "hyprdecor",
+                                                                                    .exact = false,
+                                                                                    .fn = [](eHyprCtlOutputFormat, std::string arg) -> std::string {
+                                                                                        if (arg.find("status") != std::string::npos || arg.empty())
+                                                                                            return gPlugin ? gPlugin->statusString() : "hyprdecor not loaded\n";
+                                                                                        return "usage: hyprctl hyprdecor status\n";
+                                                                                    },
+                                                                                });
 
     // add deco to existing windows
-    for (auto &w : g_pCompositor->m_windows)
+    for (auto &w : Compat::windows())
     {
         if (w->isHidden() || !w->m_isMapped)
             continue;
@@ -113,23 +136,32 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
         onNewWindow(nullptr /* unused */, std::any(w));
     }
 
+    // reloadConfig() emits config.reloaded, but that fires while the config is still
+    // being evaluated, i.e. before hl.plugin.hyprdecor.setup() in the same file.
+    // Relying on it alone left every update()-owned value uninitialised. Schedule a
+    // deferred update that waits for the values to be committed.
     HyprlandAPI::reloadConfig();
-
-    gPlugin->update();
+    gPlugin->requestUpdate();
 
     return {"hyprdecor", "A plugin to add title bars to windows.", "Vaxry", "1.0"};
 }
 
 APICALL EXPORT void PLUGIN_EXIT()
 {
-    for (auto &m : g_pCompositor->m_monitors)
-        m->m_scheduledRecalc = true;
+    if (gPlugin) {
+        for (auto &m : Compat::monitors()) {
+            if (m)
+                m->m_scheduledRecalc = true;
+        }
 
-    g_pHyprRenderer->m_renderPass.removeAllOfType("CRenderPassElement");
+        // Only touch a render pass if a render is actually in flight.
+        if (g_pHyprRenderer)
+            g_pHyprRenderer->currentPass().removeAllOfType("CRenderPassElement");
 
-    Desktop::Rule::windowEffects()->unregisterEffect(gPlugin->m_barColorRuleIdx);
-    Desktop::Rule::windowEffects()->unregisterEffect(gPlugin->m_titleColorRuleIdx);
-    Desktop::Rule::windowEffects()->unregisterEffect(gPlugin->m_nobarRuleIdx);
+        Desktop::Rule::windowEffects()->unregisterEffect(gPlugin->m_barColorRuleIdx);
+        Desktop::Rule::windowEffects()->unregisterEffect(gPlugin->m_titleColorRuleIdx);
+        Desktop::Rule::windowEffects()->unregisterEffect(gPlugin->m_nobarRuleIdx);
+    }
 
     gPlugin.reset();
 }
