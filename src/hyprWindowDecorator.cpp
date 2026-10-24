@@ -934,14 +934,15 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                 if (!element.tex || element.tex->m_texID == 0)
                     continue;
 
-                // Per-element scale overrides border.scale; inherited when unset.
-                const int ESCALE = element.cfg.scale.value_or(std::max(1, gPlugin->cfg.artScale));
+                // border.scale applies to BORDER ART ONLY. Elements have their own
+                // scale (default 1) and are otherwise sized by the monitor scale, in
+                // logical pixels: a 15px eye is 15 logical px = 30 device px on a 2x
+                // output. Inheriting border.scale made every element silently 2x.
+                const int ESCALE = element.cfg.scale.value_or(1);
                 const double S = (double)ESCALE;
 
-                // naturalSize is in SOURCE pixels, so it must be multiplied by both the
-                // art scale and the monitor scale - exactly like the border grid, which
-                // uses monitorScale * artScale. Omitting the monitor factor made
-                // elements render at half the border's scale on a HiDPI output.
+                // naturalSize is in SOURCE pixels, so multiply by the element scale and
+                // the monitor scale to reach device pixels.
                 const double DEV = S * pMonitor->m_scale;
 
                 double W = element.cfg.width > 0 ? element.cfg.width * pMonitor->m_scale : element.naturalSize.x * DEV;

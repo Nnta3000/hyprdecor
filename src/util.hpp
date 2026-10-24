@@ -101,8 +101,15 @@ inline void uploadCairoSurface(const SP<Render::ITexture> &tex, cairo_surface_t 
 
     tex->allocate(Vector2D{(double)W, (double)H});
     glBindTexture(GL_TEXTURE_2D, tex->m_texID);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, linear ? GL_LINEAR : GL_NEAREST);
+
+    // Hyprland re-applies the filter from these MEMBERS whenever it binds the texture
+    // ("useNearestNeighbor overwrites these" in Texture.hpp), so calling
+    // glTexParameteri alone is silently discarded. Both must be set.
+    const GLenum FILTER = linear ? GL_LINEAR : GL_NEAREST;
+    tex->magFilter = FILTER;
+    tex->minFilter = FILTER;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, FILTER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, FILTER);
 #ifndef GLES2
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_BLUE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
