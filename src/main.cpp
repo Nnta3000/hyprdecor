@@ -51,15 +51,19 @@ static void onNewWindow(void *self, std::any data)
     }
 }
 
-static void onCloseWindow(void *self, std::any data)
+// window.destroy carries a PHLWINDOWREF which may already be expired. Expired entries
+// are pruned here; the live match is dropped by pointer comparison.
+static void onWindowDestroyed(void *self, PHLWINDOWREF ref)
 {
-    // data is guaranteed
-    const auto PWINDOW = std::any_cast<PHLWINDOW>(data);
+    if (!gPlugin)
+        return;
 
-    // Hyprland destroys the window's decorations itself. Only stop tracking the
-    // window; never dereference a decorator pointer that may already be freed.
-    std::erase_if(gPlugin->m_vWindows, [PWINDOW](const auto &ref)
-                  { return ref.lock() == PWINDOW; });
+    const auto TARGET = ref.lock();
+    std::erase_if(gPlugin->m_vWindows, [&](const auto &tracked)
+                  {
+                      const auto LOCKED = tracked.lock();
+                      return !LOCKED || (TARGET && LOCKED == TARGET);
+                  });
 }
 
 static void onPreConfigReload()
@@ -104,6 +108,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
                                                                                { onNewWindow(nullptr, std::any(w)); }));
     gPlugin->m_vListeners.emplace_back(Event::bus()->m_events.window.updateRules.listen([&](PHLWINDOW w)
                                                                                       { onUpdateWindowRules(w); }));
+    gPlugin->m_vListeners.emplace_back(Event::bus()->m_events.window.destroy.listen([&](PHLWINDOWREF r)
+                                                                                      { onWindowDestroyed(nullptr, r); }));
     gPlugin->m_vListeners.emplace_back(Event::bus()->m_events.config.preReload.listen([]()
                                                                                      { onPreConfigReload(); }));
     gPlugin->m_vListeners.emplace_back(Event::bus()->m_events.config.reloaded.listen([]()

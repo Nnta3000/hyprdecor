@@ -67,6 +67,10 @@ std::vector<CHyprWindowDecorator *> CPlugin::liveDecorators() const
 {
     std::vector<CHyprWindowDecorator *> out;
 
+    // Prune expired refs as we go: window.destroy does not always reach us (unload,
+    // non-standard teardown), so the list is perpetually self-healing.
+    std::erase_if(const_cast<std::vector<PHLWINDOWREF> &>(m_vWindows), [](const auto &ref) { return !ref.lock(); });
+
     for (const auto &ref : m_vWindows)
     {
         const auto WINDOW = ref.lock();
