@@ -70,6 +70,7 @@ private:
   std::string m_szLastAppId;
 
   bool m_bWindowSizeChanged = false;
+  bool m_bNeedsReposition = false;
   bool m_hidden = false;
   bool m_bTitleColorChanged = false;
   bool m_bLastEnabledState = false;
