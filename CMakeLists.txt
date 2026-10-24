@@ -26,6 +26,10 @@ pkg_check_modules(deps REQUIRED IMPORTED_TARGET
 )
 target_link_libraries(hyprdecor PRIVATE rt PkgConfig::deps)
 
+# The plugin is built with the same flags Hyprland itself uses: warnings on, so
+# uninitialised members and unused code surface at build time.
+target_compile_options(hyprdecor PRIVATE -Wall -Wextra -Wunused -Wuninitialized)
+
 install(TARGETS hyprdecor)
 
 # ---------------------------------------------------------------------------

@@ -234,12 +234,6 @@ static std::string pluginConfigString(const Hyprlang::STRING *const *ptr, const 
     return (ptr && *ptr) ? std::string(**ptr) : current;
 }
 
-// Same for colours: fall back to the value already in effect.
-static CHyprColor pluginConfigColor(const Hyprlang::INT *const *ptr, const CHyprColor &current)
-{
-    return (ptr && *ptr) ? CHyprColor((uint64_t)**ptr) : current;
-}
-
 static CHyprColor pluginConfigColor(const Hyprlang::INT *const *ptr, uint64_t fallback)
 {
     return (ptr && *ptr) ? CHyprColor((uint64_t)**ptr) : CHyprColor(fallback);
@@ -250,7 +244,6 @@ static CHyprColor pluginConfigColor(const Hyprlang::INT *const *ptr, uint64_t fa
 // crashed the plugin; these fall back to the built-in default instead.
 static int64_t   cfgInt(Hyprlang::INT *const *p, int64_t fallback) { return (p && *p) ? (int64_t)**p : fallback; }
 static float     cfgFloat(Hyprlang::FLOAT *const *p, float fallback) { return (p && *p) ? (float)**p : fallback; }
-static std::string cfgString(Hyprlang::STRING *const *p, const char *fallback) { return (p && *p && **p) ? std::string(**p) : std::string(fallback); }
 
 void CPlugin::notifyError(const std::string &message)
 {

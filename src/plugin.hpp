@@ -139,4 +139,3 @@ public:
 
 inline std::unique_ptr<CPlugin> gPlugin;
 
-#define DEBUG_LOG(fmt, ...) Log::logger->log(Log::DEBUG, "[HYPRDECOR] " fmt, ##__VA_ARGS__)

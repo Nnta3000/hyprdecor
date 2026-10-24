@@ -49,7 +49,6 @@ public:
 
   void invalidateTextures();
 
-  CHyprWindowDecorator *m_self;
 
 private:
   SBoxExtents m_seExtents;
