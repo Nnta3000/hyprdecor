@@ -85,7 +85,13 @@ private:
   bool isMouseOnBar();
 
   void renderPass(PHLMONITOR, float const &a);
-  void renderBarTitle(const Vector2D &bufferSize, const float scale);
+  void renderBarTitle(const CBox &band, const float scale);
+
+  // Where the title (and its background) goes, in the same space as topBarBox.
+  // The title fills the gap between left- and right-anchored elements unless a
+  // max_width caps it. Both the text and its backdrop are derived from this, so they
+  // cannot drift apart.
+  CBox titleBox(const CBox &band, const float scale) const;
   void renderText(SP<Render::ITexture> out, const std::string &text, const CHyprColor &color, const Vector2D &bufferSize, const float scale, const int fontSize);
   bool renderBarButtons(const Vector2D &bufferSize, const float scale);
   void renderBarButtonsText(CBox *barBox, const float scale, const float a);

@@ -265,7 +265,15 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
         if (hasField(L, TITLE, "size"))
             NEXT.titleSize = (int)numberField(L, TITLE, "size", 10);
         if (hasField(L, TITLE, "align"))
-            NEXT.titleAlign = numberField(L, TITLE, "align", 0);
+        {
+            const auto ALIGN = stringField(L, TITLE, "align");
+            if (!ALIGN)
+                return raise(L, "hyprdecor.setup: 'defaults.title.align' must be a string");
+            if (*ALIGN == "left" || *ALIGN == "centre" || *ALIGN == "center" || *ALIGN == "right")
+                NEXT.titleAlign = (*ALIGN == "center") ? "centre" : *ALIGN;
+            else
+                return raise(L, "hyprdecor.setup: 'defaults.title.align' must be left, centre or right (got \"{}\")", *ALIGN);
+        }
         if (hasField(L, TITLE, "font"))
         {
             const auto FONT = stringField(L, TITLE, "font");
@@ -282,6 +290,30 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             NEXT.textColor = (uint64_t)numberField(L, TITLE, "color", 0xFFFFFFFF);
         if (hasField(L, TITLE, "inset"))
             NEXT.titleInset = numberField(L, TITLE, "inset", 0);
+        if (hasField(L, TITLE, "offset_x"))
+            NEXT.titleOffsetX = numberField(L, TITLE, "offset_x", 0);
+        if (hasField(L, TITLE, "offset_y"))
+            NEXT.titleOffsetY = numberField(L, TITLE, "offset_y", 0);
+        if (hasField(L, TITLE, "max_width"))
+            NEXT.titleMaxWidth = numberField(L, TITLE, "max_width", -1);
+        if (hasField(L, TITLE, "ellipsize"))
+            NEXT.titleEllipsize = boolField(L, TITLE, "ellipsize", true);
+
+        // Optional backdrop, nested so it can never drift from the text.
+        if (tableField(L, TITLE, "background", "defaults.title.background"))
+        {
+            const int BG = lua_gettop(L);
+
+            const auto BGIMAGE = stringField(L, BG, "image");
+            if (!BGIMAGE || BGIMAGE->empty())
+                return raise(L, "hyprdecor.setup: 'defaults.title.background.image' is required");
+
+            NEXT.titleBgEnabled = boolField(L, BG, "enabled", true);
+            NEXT.titleBgPath    = *BGIMAGE;
+            NEXT.titleBgStretchMax = hasField(L, BG, "max_stretch") ? numberField(L, BG, "max_stretch", -1) : -1;
+
+            lua_pop(L, 1);
+        }
 
         lua_pop(L, 1);
     }
