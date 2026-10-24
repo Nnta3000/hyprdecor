@@ -259,29 +259,6 @@ void CPlugin::requestUpdate()
 
 void CPlugin::processPendingUpdate()
 {
-    // Evidence probe: for a while after a window opens, log what the positioner
-    // thinks is reserved vs. the actual window box. The "window fills the output"
-    // bug should show up here as reserved collapsing to 0.
-    if (m_iProbeFrames > 0)
-    {
-        --m_iProbeFrames;
-
-        for (const auto &ref : m_vWindows)
-        {
-            const auto W = ref.lock();
-            if (!W)
-                continue;
-
-            const auto RESERVED = g_pDecorationPositioner->getWindowDecorationReserved(W);
-            const auto WSIZE = W->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-            const auto MMON = W->m_monitor.lock();
-            Log::logger->log(Log::DEBUG, std::format("[PROBE f{}] win={}x{} reserved L{:.0f} T{:.0f} R{:.0f} B{:.0f} mon={}x{} decos={}",
-                                                     m_iProbeFrames, WSIZE.x, WSIZE.y,
-                                                     RESERVED.topLeft.x, RESERVED.topLeft.y, RESERVED.bottomRight.x, RESERVED.bottomRight.y,
-                                                     MMON ? MMON->m_size.x : 0, MMON ? MMON->m_size.y : 0, W->m_windowDecorations.size()));
-        }
-    }
-
     if (!m_bUpdatePending)
         return;
 
