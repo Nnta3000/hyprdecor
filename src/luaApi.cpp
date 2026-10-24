@@ -78,6 +78,24 @@ std::optional<std::string> Hyprdecor::Lua::stringField(lua_State *L, int tableId
     return OUT;
 }
 
+bool Hyprdecor::Lua::boolField(lua_State *L, int tableIdx, const char *key, bool fallback)
+{
+    if (!lua_istable(L, tableIdx))
+        return fallback;
+
+    lua_getfield(L, tableIdx, key);
+
+    bool VALUE = fallback;
+    if (lua_isboolean(L, -1))
+        VALUE = lua_toboolean(L, -1) != 0;
+    else if (lua_isnumber(L, -1))
+        VALUE = lua_tonumber(L, -1) != 0;
+    // anything else (nil, string, table) keeps the fallback
+
+    lua_pop(L, 1);
+    return VALUE;
+}
+
 double Hyprdecor::Lua::numberField(lua_State *L, int tableIdx, const char *key, double fallback)
 {
     if (!lua_istable(L, tableIdx))
@@ -229,10 +247,10 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
         }
 
         if (hasField(L, BORDER, "linear_filtering"))
-            NEXT.linearFiltering = numberField(L, BORDER, "linear_filtering", 1) != 0;
+            NEXT.linearFiltering = boolField(L, BORDER, "linear_filtering", true);
 
         if (hasField(L, BORDER, "repeat"))
-            NEXT.repeat = numberField(L, BORDER, "repeat", 0) != 0;
+            NEXT.repeat = boolField(L, BORDER, "repeat", false);
 
         lua_pop(L, 1);
     }
@@ -243,7 +261,7 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
         const int TITLE = lua_gettop(L);
 
         if (hasField(L, TITLE, "enabled"))
-            NEXT.titleEnabled = numberField(L, TITLE, "enabled", 1) != 0;
+            NEXT.titleEnabled = boolField(L, TITLE, "enabled", true);
         if (hasField(L, TITLE, "size"))
             NEXT.titleSize = (int)numberField(L, TITLE, "size", 10);
         if (hasField(L, TITLE, "align"))
@@ -276,7 +294,7 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
         if (hasField(L, BAR, "color"))
             NEXT.barColor = (uint64_t)numberField(L, BAR, "color", 0x88333333);
         if (hasField(L, BAR, "blur"))
-            NEXT.blur = numberField(L, BAR, "blur", 0) != 0;
+            NEXT.blur = boolField(L, BAR, "blur", false);
         if (hasField(L, BAR, "padding"))
             NEXT.padding = (int)numberField(L, BAR, "padding", 7);
         if (hasField(L, BAR, "button_padding"))
@@ -288,11 +306,11 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
                 NEXT.buttonsAlignment = *ALIGN;
         }
         if (hasField(L, BAR, "part_of_window"))
-            NEXT.partOfWindow = numberField(L, BAR, "part_of_window", 1) != 0;
+            NEXT.partOfWindow = boolField(L, BAR, "part_of_window", true);
         if (hasField(L, BAR, "precedence_over_border"))
-            NEXT.precedenceOverBorder = numberField(L, BAR, "precedence_over_border", 0) != 0;
+            NEXT.precedenceOverBorder = boolField(L, BAR, "precedence_over_border", false);
         if (hasField(L, BAR, "render_above"))
-            NEXT.renderAbove = numberField(L, BAR, "render_above", 0) != 0;
+            NEXT.renderAbove = boolField(L, BAR, "render_above", false);
         if (hasField(L, BAR, "on_double_click"))
         {
             const auto CMD = stringField(L, BAR, "on_double_click");
@@ -309,7 +327,7 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
         const int ICON = lua_gettop(L);
 
         if (hasField(L, ICON, "enabled"))
-            NEXT.appIconEnabled = numberField(L, ICON, "enabled", 0) != 0;
+            NEXT.appIconEnabled = boolField(L, ICON, "enabled", false);
         if (hasField(L, ICON, "offset_x"))
             NEXT.appIconOffsetX = numberField(L, ICON, "offset_x", 0);
         if (hasField(L, ICON, "offset_y"))
