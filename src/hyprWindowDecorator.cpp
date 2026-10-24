@@ -481,9 +481,10 @@ CBox CHyprWindowDecorator::titleBox(const CBox &band, const float scale) const
     const auto &C = gPlugin->cfg;
 
     // Widest extent reached by elements anchored left / right, in band-local px.
-    // Layout spacing only: titleInset is text padding and is applied inside the box.
-    double leftEdge  = C.titleGap * scale;
-    double rightEdge = band.width - C.titleGap * scale;
+    // Layout spacing only, per side: titleInset is text padding and is applied inside
+    // the box. The eye and the buttons are usually different distances away.
+    double leftEdge  = C.titleGapLeft * scale;
+    double rightEdge = band.width - C.titleGapRight * scale;
 
 
     for (const auto &el : gPlugin->m_vElements)
@@ -495,9 +496,9 @@ CBox CHyprWindowDecorator::titleBox(const CBox &band, const float scale) const
         const double OX = el.cfg.offsetX * scale;
 
         if (el.cfg.anchor == SElement::eAnchor::TopLeft)
-            leftEdge = std::max(leftEdge, OX + W + C.titleGap * scale);
+            leftEdge = std::max(leftEdge, OX + W + C.titleGapLeft * scale);
         else if (el.cfg.anchor == SElement::eAnchor::TopRight)
-            rightEdge = std::min(rightEdge, band.width - W + OX - C.titleGap * scale);
+            rightEdge = std::min(rightEdge, band.width - W + OX - C.titleGapRight * scale);
     }
 
     double x = band.x + leftEdge + C.titleOffsetX * scale;

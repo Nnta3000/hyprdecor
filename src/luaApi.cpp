@@ -290,8 +290,17 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             NEXT.textColor = (uint64_t)numberField(L, TITLE, "color", 0xFFFFFFFF);
         if (hasField(L, TITLE, "inset"))
             NEXT.titleInset = numberField(L, TITLE, "inset", 0);
+        // `gap` sets both sides; gap_left / gap_right override individually.
         if (hasField(L, TITLE, "gap"))
-            NEXT.titleGap = numberField(L, TITLE, "gap", 0);
+        {
+            const double G = numberField(L, TITLE, "gap", 0);
+            NEXT.titleGapLeft = G;
+            NEXT.titleGapRight = G;
+        }
+        if (hasField(L, TITLE, "gap_left"))
+            NEXT.titleGapLeft = numberField(L, TITLE, "gap_left", 0);
+        if (hasField(L, TITLE, "gap_right"))
+            NEXT.titleGapRight = numberField(L, TITLE, "gap_right", 0);
         if (hasField(L, TITLE, "offset_x"))
             NEXT.titleOffsetX = numberField(L, TITLE, "offset_x", 0);
         if (hasField(L, TITLE, "offset_y"))
