@@ -934,8 +934,12 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                 if (!element.tex || element.tex->m_texID == 0)
                     continue;
 
-                const double W = element.cfg.width > 0 ? element.cfg.width * pMonitor->m_scale : element.naturalSize.x * std::max(1, gPlugin->cfg.artScale);
-                const double H = element.cfg.height > 0 ? element.cfg.height * pMonitor->m_scale : element.naturalSize.y * std::max(1, gPlugin->cfg.artScale);
+                // Per-element scale overrides border.scale; inherited when unset.
+                const int ESCALE = element.cfg.scale.value_or(std::max(1, gPlugin->cfg.artScale));
+                const double S = (double)ESCALE;
+
+                double W = element.cfg.width > 0 ? element.cfg.width * pMonitor->m_scale : element.naturalSize.x * S;
+                double H = element.cfg.height > 0 ? element.cfg.height * pMonitor->m_scale : element.naturalSize.y * S;
 
                 const double OX = element.cfg.offsetX * pMonitor->m_scale;
                 const double OY = element.cfg.offsetY * pMonitor->m_scale;
@@ -951,7 +955,54 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
 
                 Render::GL::CHyprOpenGLImpl::STextureRenderData edata;
                 edata.a = a;
-                Render::GL::g_pHyprOpenGL->renderTexture(element.tex, CBox{X, Y, W, H}, edata);
+
+                if (element.cfg.ninepatch && element.npi.defined)
+                {
+                    // A nine-segment element: stretch the middle band, keep the ends.
+                    // Horizontal by default, so a title background keeps its height.
+                    const double SRCW = element.naturalSize.x;
+                    const double SRCH = element.naturalSize.y;
+
+                    // Horizontal-only stretch (the default): the element keeps its
+                    // natural height, so its top and bottom bands are drawn unscaled
+                    // and the vertical middle contributes nothing.
+                    if (!element.cfg.stretchVertical)
+                        H = (element.npi.border[1] + element.npi.border[3]) * S;
+
+                    // Optional cap: never stretch beyond max_stretch source pixels.
+                    if (element.cfg.maxStretch && *element.cfg.maxStretch > 0)
+                    {
+                        const double FIXED = (element.npi.border[0] + element.npi.border[2]) * S;
+                        W = std::min(W, FIXED + *element.cfg.maxStretch * S);
+                    }
+
+                    const auto GRID = NinePatch::layout(element.npi, SRCW, SRCH, W, H, S);
+
+                    // Draw the 9 cells; for horizontal-only stretch we collapse the
+                    // vertical middle band by using the same destination rows.
+                    for (int gi = 0; gi < 3; ++gi)
+                        for (int gj = 0; gj < 3; ++gj)
+                        {
+                            const double SW = GRID.sx[gi + 1] - GRID.sx[gi];
+                            const double SH = GRID.sy[gj + 1] - GRID.sy[gj];
+                            const double DW = GRID.dx[gi + 1] - GRID.dx[gi];
+                            const double DH = GRID.dy[gj + 1] - GRID.dy[gj];
+                            if (SW <= 0 || SH <= 0 || DW <= 0 || DH <= 0)
+                                continue;
+
+                            // Each cell draws a sub-rectangle of the texture into its
+                            // own box: renderTexture maps the whole texture by default,
+                            // so the UVs must be restricted explicitly.
+                            auto cellData = edata;
+                            cellData.allowCustomUV            = true;
+                            cellData.primarySurfaceUVTopLeft     = Vector2D(GRID.sx[gi] / SRCW, GRID.sy[gj] / SRCH);
+                            cellData.primarySurfaceUVBottomRight = Vector2D(GRID.sx[gi + 1] / SRCW, GRID.sy[gj + 1] / SRCH);
+
+                            Render::GL::g_pHyprOpenGL->renderTexture(element.tex, CBox{X + GRID.dx[gi], Y + GRID.dy[gj], DW, DH}, cellData);
+                        }
+                }
+                else
+                    Render::GL::g_pHyprOpenGL->renderTexture(element.tex, CBox{X, Y, W, H}, edata);
             }
         }
     }

@@ -373,6 +373,46 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
                     return raise(L, "hyprdecor.setup: 'defaults.elements[{}].anchor' must be top-left, top-centre or top-right (got \"{}\")", i, *ANCHOR);
             }
 
+            if (hasField(L, ITEM, "filter"))
+            {
+                const auto FILTER = stringField(L, ITEM, "filter");
+                if (!FILTER)
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].filter' must be a string", i);
+                if (*FILTER == "nearest")
+                    E.filter = false;
+                else if (*FILTER == "linear" || *FILTER == "bilinear")
+                    E.filter = true;
+                else
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].filter' must be \"nearest\" or \"linear\"", i);
+            }
+
+            if (hasField(L, ITEM, "scale"))
+            {
+                const double ES = numberField(L, ITEM, "scale", 1);
+                if (ES < 1 || ES != (int)ES)
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].scale' must be a positive integer", i);
+                E.scale = (int)ES;
+            }
+
+            if (hasField(L, ITEM, "ninepatch"))
+                E.ninepatch = boolField(L, ITEM, "ninepatch", false);
+
+            if (hasField(L, ITEM, "stretch"))
+            {
+                const auto ST = stringField(L, ITEM, "stretch");
+                if (!ST)
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].stretch' must be a string", i);
+                if (*ST == "both")
+                    E.stretchVertical = true;
+                else if (*ST == "horizontal")
+                    E.stretchVertical = false;
+                else
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].stretch' must be \"horizontal\" or \"both\"", i);
+            }
+
+            if (hasField(L, ITEM, "max_stretch"))
+                E.maxStretch = numberField(L, ITEM, "max_stretch", -1);
+
             E.offsetX = numberField(L, ITEM, "offset_x", 0);
             E.offsetY = numberField(L, ITEM, "offset_y", 0);
             E.width   = hasField(L, ITEM, "width") ? numberField(L, ITEM, "width", -1) : -1;
