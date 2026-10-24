@@ -289,7 +289,6 @@ std::string CPlugin::statusString() const
     out += std::format("  render fallback:   {}\n", activeSurface ? "texture" : "solid bar_color (NO TEXTURE)");
     out += std::format("  offsets L/T/R/B:   {} {} {} {}\n",
                        decoration_offset_left, decoration_offset_top, decoration_offset_right, decoration_offset_bottom);
-    out += std::format("  middle alpha:      {}\n", ninepatch_middle_alpha);
     out += std::format("  enabled:           {}\n", enabled ? "yes" : "no");
     out += std::format("  decorated windows: {}\n", liveDecorators().size());
     out += std::format("  canvas (last):     {}x{}\n", lastBarW, lastBarH);
@@ -325,7 +324,6 @@ void CPlugin::update()
     decoration_render_above    = C.renderAbove;
     ninepatch_linear_filtering = C.linearFiltering;
     ninepatch_repeat           = C.repeat;
-    ninepatch_middle_alpha     = (float)C.middleAlpha;
     bar_outline_color          = CHyprColor(C.outlineColor);
     bar_outline_width          = C.outlineWidth;
     bar_outline_always         = C.outlineAlways;

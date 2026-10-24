@@ -89,7 +89,6 @@ private:
   void renderText(SP<Render::ITexture> out, const std::string &text, const CHyprColor &color, const Vector2D &bufferSize, const float scale, const int fontSize);
   bool renderBarButtons(const Vector2D &bufferSize, const float scale);
   void renderBarButtonsText(CBox *barBox, const float scale, const float a);
-  void renderNinePatch(SP<Render::ITexture> tex, const CBox &box, const float margins[4], const float a, const float middleAlpha);
   void damageOnButtonHover();
 
   bool inputIsValid();

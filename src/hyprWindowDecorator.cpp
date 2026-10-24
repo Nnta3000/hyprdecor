@@ -869,15 +869,10 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
             {
                 for (int j = 0; j < 3; ++j)
                 {
-                    double middleAlphaVal = (i == 1 && j == 1) ? gPlugin->ninepatch_middle_alpha : 1.0;
-                    if (middleAlphaVal <= 0)
-                        continue;
-
+                    // All nine cells are painted. The window is always drawn on top of
+                    // the decoration, so a "hollow centre" option would only ever hide
+                    // frame art behind the client.
                     cairo_save(CAIRO);
-                    if (middleAlphaVal < 1.0)
-                    {
-                        cairo_push_group(CAIRO);
-                    }
 
                     bool isMiddlePatch = (i == 1 || j == 1);
                     if (gPlugin->ninepatch_repeat && isMiddlePatch)
@@ -889,11 +884,6 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                         drawSizedSurface(CAIRO, sourceSurface, sx[i], sy[j], sx[i + 1] - sx[i], sy[j + 1] - sy[j], dx[i], dy[j], dx[i + 1] - dx[i], dy[j + 1] - dy[j], RESAMPLE);
                     }
 
-                    if (middleAlphaVal < 1.0)
-                    {
-                        cairo_pop_group_to_source(CAIRO);
-                        cairo_paint_with_alpha(CAIRO, middleAlphaVal);
-                    }
                     cairo_restore(CAIRO);
                 }
             }
