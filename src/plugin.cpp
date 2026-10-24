@@ -185,6 +185,22 @@ void CPlugin::loadAllTextures()
         }
     }
 
+    // Title backdrop, loaded when its path changes.
+    if (cfg.titleBgEnabled && !cfg.titleBgPath.empty() && m_szLoadedTitleBg != cfg.titleBgPath)
+    {
+        m_pTitleBgTex = makeShared<Render::GL::CGLTexture>();
+        m_titleBgNPI  = SNinePatchInfo{};
+
+        cairo_surface_t *surface = loadSurface(cfg.titleBgPath, &m_titleBgNPI, 0);
+        if (surface)
+        {
+            uploadCairoSurface(m_pTitleBgTex, surface, cfg.linearFiltering);
+            m_titleBgSize = m_pTitleBgTex->m_size;
+            cairo_surface_destroy(surface);
+        }
+        m_szLoadedTitleBg = cfg.titleBgPath;
+    }
+
     // load textures if they exist and are not loaded
     for (auto &button : m_vButtons)
     {
@@ -310,7 +326,6 @@ void CPlugin::update()
     bar_text_font         = C.titleFont;
     decoration_title_size = C.titleSize;
     decoration_title_enabled = C.titleEnabled;
-    decoration_title_align   = (float)C.titleAlign;
     decoration_title_placement = C.titlePlacement;
     bar_blur                 = C.blur;
     bar_part_of_window       = C.partOfWindow;

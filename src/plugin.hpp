@@ -83,7 +83,6 @@ public:
     bool decoration_title_enabled = true;
     bool bar_blur = false;
     std::string bar_text_font = "Sans";
-    float decoration_title_align = 0.5F;
     std::string decoration_title_placement = "top";
     bool bar_part_of_window = true;
     bool bar_precedence_over_border = false;
@@ -144,6 +143,12 @@ public:
     HANDLE m_pHandle = nullptr;
     std::vector<SHyprButton> m_vButtons;
     std::vector<SElementTex> m_vElements;
+
+    // Title backdrop: a nine-patch stretched to the title box, drawn behind the text.
+    SP<Render::ITexture> m_pTitleBgTex = makeShared<Render::GL::CGLTexture>();
+    SNinePatchInfo       m_titleBgNPI;
+    Vector2D             m_titleBgSize = {0, 0};
+    std::string          m_szLoadedTitleBg;
 
     // Windows we have decorated. Decorators themselves are owned by Hyprland
     // (window->m_windowDecorations); storing their raw pointers here went stale as

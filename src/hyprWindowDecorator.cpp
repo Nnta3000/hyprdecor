@@ -473,23 +473,66 @@ void CHyprWindowDecorator::renderText(SP<Render::ITexture> out, const std::strin
     cairo_surface_destroy(CAIROSURFACE);
 }
 
-void CHyprWindowDecorator::renderBarTitle(const Vector2D &bufferSize, const float scale)
+// The title occupies the gap between the left- and right-anchored elements of the band.
+// Both the text and its backdrop are computed from this box, which is what makes them
+// impossible to desynchronise: there is no independent "title background" position.
+CBox CHyprWindowDecorator::titleBox(const CBox &band, const float scale) const
+{
+    const auto &C = gPlugin->cfg;
+
+    // Widest extent reached by elements anchored left / right, in band-local px.
+    double leftEdge  = C.titleInset * scale;
+    double rightEdge = band.width - C.titleInset * scale;
+
+
+    for (const auto &el : gPlugin->m_vElements)
+    {
+        if (!el.tex || el.tex->m_texID == 0)
+            continue;
+
+        const double W = el.cfg.width > 0 ? el.cfg.width * scale : el.naturalSize.x * el.cfg.scale.value_or(1) * scale;
+        const double OX = el.cfg.offsetX * scale;
+
+        if (el.cfg.anchor == SElement::eAnchor::TopLeft)
+            leftEdge = std::max(leftEdge, OX + W + C.titleInset * scale);
+        else if (el.cfg.anchor == SElement::eAnchor::TopRight)
+            rightEdge = std::min(rightEdge, band.width - W + OX - C.titleInset * scale);
+    }
+
+    double x = band.x + leftEdge + C.titleOffsetX * scale;
+    double w = std::max(0.0, rightEdge - leftEdge);
+
+    // Optional cap; the text is then positioned inside the free span by `align`.
+    if (C.titleMaxWidth > 0)
+        w = std::min(w, C.titleMaxWidth * scale);
+
+    if (C.titleAlign == "right")
+        x = band.x + rightEdge - w + C.titleOffsetX * scale;
+    else if (C.titleAlign == "centre")
+        x = band.x + leftEdge + (rightEdge - leftEdge - w) / 2.0 + C.titleOffsetX * scale;
+
+    const double y = band.y + C.titleOffsetY * scale;
+
+    return {x, y, w, band.height};
+}
+
+void CHyprWindowDecorator::renderBarTitle(const CBox &band, const float scale)
 {
     const bool VERTICAL = gPlugin->decoration_title_placement == "left" || gPlugin->decoration_title_placement == "right";
 
     const auto PWINDOW = m_pWindow.lock();
 
-    float buttonSizes = gPlugin->bar_button_padding;
-    for (auto &b : gPlugin->m_vButtons)
-    {
-        buttonSizes += (VERTICAL ? b.size.y : b.size.x) + gPlugin->bar_button_padding;
-    }
+    // The text lives in the box the layout computed, so a background drawn for the same
+    // box lines up by construction.
+    const CBox TITLEBOX = titleBox(band, scale);
 
     const auto scaledSize = gPlugin->decoration_title_size * scale;
-    const auto scaledButtonsSize = buttonSizes * scale;
-    const auto scaledBarPadding = gPlugin->decoration_padding * scale;
 
     const CHyprColor COLOR = m_bForcedTitleColor.value_or(gPlugin->col_text);
+
+    const Vector2D bufferSize = {TITLEBOX.width, band.height};
+    if (bufferSize.x <= 0 || bufferSize.y <= 0)
+        return;
 
     const auto CAIROSURFACE = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, bufferSize.x, bufferSize.y);
     const auto CAIRO = cairo_create(CAIROSURFACE);
@@ -510,7 +553,7 @@ void CHyprWindowDecorator::renderBarTitle(const Vector2D &bufferSize, const floa
         cairo_translate(CAIRO, -bufferSize.y / 2.0, -bufferSize.x / 2.0);
     }
 
-    const float logicalWidth = VERTICAL ? bufferSize.y : bufferSize.x;
+    [[maybe_unused]] const float logicalWidth = VERTICAL ? bufferSize.y : bufferSize.x;
     const float logicalHeight = VERTICAL ? bufferSize.x : bufferSize.y;
 
     // draw title using Pango
@@ -525,24 +568,30 @@ void CHyprWindowDecorator::renderBarTitle(const Vector2D &bufferSize, const floa
     PangoContext *context = pango_layout_get_context(layout);
     pango_context_set_base_dir(context, PANGO_DIRECTION_NEUTRAL);
 
-    const float iconReserved = gPlugin->decoration_appicon_enabled ? (VERTICAL ? bufferSize.x : bufferSize.y) : 0;
-    const float paddingTotal = scaledBarPadding * 2 + scaledButtonsSize + iconReserved;
-    const float maxWidth = std::max(0.0f, logicalWidth - paddingTotal);
+    // The canvas is exactly the title box, so the text may use all of it. Ellipsising
+    // keeps a long title inside the box instead of spilling over its neighbours.
+    const float maxWidth = std::max(0.0f, (float)bufferSize.x);
 
     pango_layout_set_width(layout, (int)std::round(maxWidth * PANGO_SCALE));
-    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+    if (gPlugin->cfg.titleEllipsize)
+        pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+    else
+        pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_NONE);
 
     cairo_set_source_rgba(CAIRO, COLOR.r, COLOR.g, COLOR.b, COLOR.a);
 
     int layoutWidth, layoutHeight;
     pango_layout_get_size(layout, &layoutWidth, &layoutHeight);
 
-    // Use float alignment (0.0 to 1.0)
-    const float align = std::clamp(gPlugin->decoration_title_align, 0.0f, 1.0f);
+    // Alignment within the title box (the box itself is already positioned).
+    const std::string &ALIGN = gPlugin->cfg.titleAlign;
+    float align = 0.0f;
+    if (ALIGN == "right")
+        align = 1.0f;
+    else if (ALIGN == "centre")
+        align = 0.5f;
 
-    const bool BUTTONSRIGHT = gPlugin->bar_buttons_alignment != "left";
-    const float availableWidth = logicalWidth - paddingTotal;
-    const int xOffset = std::round(scaledBarPadding + (BUTTONSRIGHT ? 0 : scaledButtonsSize) + iconReserved + (availableWidth - (float)layoutWidth / PANGO_SCALE) * align);
+    const int xOffset = (int)std::round((maxWidth - (float)layoutWidth / PANGO_SCALE) * align);
     const int yOffset = std::round((logicalHeight / 2.0 - layoutHeight / PANGO_SCALE / 2.0));
 
     cairo_move_to(CAIRO, xOffset, yOffset);
@@ -1106,7 +1155,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
         (m_szLastTitle != PWINDOW->m_title || m_bWindowSizeChanged || m_pTextTex->m_texID == 0 || m_bTitleColorChanged || m_pTextTex->m_size != TEXTWANT))
     {
         m_szLastTitle = PWINDOW->m_title;
-        renderBarTitle(Vector2D((double)topBarBox.width, (double)topBarBox.height), pMonitor->m_scale);
+        renderBarTitle(topBarBox, pMonitor->m_scale);
     }
 
     if (ROUNDING)
@@ -1119,13 +1168,54 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
         glStencilFunc(GL_ALWAYS, 1, 0xFF);
     }
 
-    if (gPlugin->decoration_title_enabled && m_pTextTex->m_texID)
+    if (gPlugin->decoration_title_enabled)
     {
-        // render title texture at full bar size (text is already positioned within the texture)
-        CBox textBox = {topBarBox.x, topBarBox.y, (double)m_pTextTex->m_size.x, (double)m_pTextTex->m_size.y};
-        Render::GL::CHyprOpenGLImpl::STextureRenderData data;
-        data.a = a;
-        Render::GL::g_pHyprOpenGL->renderTexture(m_pTextTex, textBox, data);
+        // Background and text share the SAME box, so they cannot drift apart: the
+        // backdrop is derived from titleBox(), never positioned independently.
+        const CBox TITLEBOX = titleBox(topBarBox, pMonitor->m_scale);
+
+        if (gPlugin->cfg.titleBgEnabled && gPlugin->m_pTitleBgTex && gPlugin->m_pTitleBgTex->m_texID != 0 && gPlugin->m_titleBgNPI.defined)
+        {
+            const double BS = (double)std::max(1, gPlugin->cfg.artScale) * pMonitor->m_scale;
+            double BW = TITLEBOX.width;
+            if (gPlugin->cfg.titleBgStretchMax > 0 && gPlugin->m_titleBgNPI.border[0] + gPlugin->m_titleBgNPI.border[2] > 0)
+            {
+                const double FIXED = (gPlugin->m_titleBgNPI.border[0] + gPlugin->m_titleBgNPI.border[2]) * BS;
+                BW = std::min(BW, FIXED + gPlugin->cfg.titleBgStretchMax * BS);
+            }
+
+            const auto GRID = NinePatch::layout(gPlugin->m_titleBgNPI, gPlugin->m_titleBgSize.x, gPlugin->m_titleBgSize.y, BW, TITLEBOX.height, BS);
+
+            Render::GL::CHyprOpenGLImpl::STextureRenderData bgData;
+            bgData.a = a;
+
+            for (int gi = 0; gi < 3; ++gi)
+                for (int gj = 0; gj < 3; ++gj)
+                {
+                    const double SW = GRID.sx[gi + 1] - GRID.sx[gi];
+                    const double SH = GRID.sy[gj + 1] - GRID.sy[gj];
+                    const double DW = GRID.dx[gi + 1] - GRID.dx[gi];
+                    const double DH = GRID.dy[gj + 1] - GRID.dy[gj];
+                    if (SW <= 0 || SH <= 0 || DW <= 0 || DH <= 0)
+                        continue;
+
+                    auto cell = bgData;
+                    cell.allowCustomUV                   = true;
+                    cell.primarySurfaceUVTopLeft         = Vector2D(GRID.sx[gi] / gPlugin->m_titleBgSize.x, GRID.sy[gj] / gPlugin->m_titleBgSize.y);
+                    cell.primarySurfaceUVBottomRight     = Vector2D(GRID.sx[gi + 1] / gPlugin->m_titleBgSize.x, GRID.sy[gj + 1] / gPlugin->m_titleBgSize.y);
+
+                    Render::GL::g_pHyprOpenGL->renderTexture(gPlugin->m_pTitleBgTex, CBox{TITLEBOX.x + GRID.dx[gi], TITLEBOX.y + GRID.dy[gj], DW, DH}, cell);
+                }
+        }
+
+        if (m_pTextTex->m_texID)
+        {
+            // The text texture is exactly the title box, so it is blitted 1:1.
+            CBox textBox = {TITLEBOX.x, TITLEBOX.y, (double)m_pTextTex->m_size.x, (double)m_pTextTex->m_size.y};
+            Render::GL::CHyprOpenGLImpl::STextureRenderData data;
+            data.a = a;
+            Render::GL::g_pHyprOpenGL->renderTexture(m_pTextTex, textBox, data);
+        }
     }
 
     const bool BTNSVERTICAL = gPlugin->decoration_title_placement == "left" || gPlugin->decoration_title_placement == "right";
