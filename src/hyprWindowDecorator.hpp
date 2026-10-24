@@ -26,6 +26,9 @@ public:
 
   virtual SDecorationPositioningInfo getPositioningInfo();
 
+  // Reserved extents: the single source of truth shared by layout, drawing and input.
+  SBoxExtents currentExtents() const;
+
   virtual void onPositioningReply(const SDecorationPositioningReply &reply);
 
   virtual void draw(PHLMONITOR, float const &a);

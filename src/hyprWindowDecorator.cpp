@@ -72,6 +72,37 @@ CHyprWindowDecorator::~CHyprWindowDecorator()
     // owns this object. Event listeners are released with their shared pointers.
 }
 
+// The one place that decides how much space this decoration reserves. Layout, drawing
+// and hit-testing must all agree, otherwise the reserved area and the drawn frame
+// disagree and clicks land in the wrong place.
+SBoxExtents CHyprWindowDecorator::currentExtents() const
+{
+    SBoxExtents extents{{0, 0}, {0, 0}};
+
+    if (!gPlugin->enabled || m_hidden)
+        return extents;
+
+    // setup() thickness is authoritative: it fixes the reserved space even when the
+    // texture has not been parsed.
+    if (gPlugin->setup_applied && gPlugin->setup_border_thickness >= 0)
+    {
+        const auto T = (double)gPlugin->setup_border_thickness;
+        extents.topLeft = Vector2D(T, T);
+        extents.bottomRight = Vector2D(T, T);
+        return extents;
+    }
+
+    const auto &NPI = gPlugin->activeNinepatch.defined ? gPlugin->activeNinepatch : gPlugin->inactiveNinepatch;
+    const auto P = (double)gPlugin->decoration_padding;
+
+    extents.topLeft.x = gPlugin->decoration_offset_left + NPI.padding[0] + P;
+    extents.topLeft.y = gPlugin->decoration_offset_top + NPI.padding[1] + P;
+    extents.bottomRight.x = gPlugin->decoration_offset_right + NPI.padding[2] + P;
+    extents.bottomRight.y = gPlugin->decoration_offset_bottom + NPI.padding[3] + P;
+
+    return extents;
+}
+
 SDecorationPositioningInfo CHyprWindowDecorator::getPositioningInfo()
 {
     SDecorationPositioningInfo info;
@@ -84,34 +115,7 @@ SDecorationPositioningInfo CHyprWindowDecorator::getPositioningInfo()
     info.priority = gPlugin->bar_precedence_over_border ? 10005 : 5000;
     info.reserved = !gPlugin->decoration_inset;
 
-    const auto &NPI = gPlugin->activeNinepatch.defined ? gPlugin->activeNinepatch : gPlugin->inactiveNinepatch;
-
-    const auto P = gPlugin->decoration_padding;
-
-    info.desiredExtents = {
-        Vector2D(0, 0),
-        Vector2D(0, 0)};
-
-    if (gPlugin->enabled && !m_hidden)
-    {
-        // setup() thickness is authoritative: it fixes the reserved space even when
-        // the texture has not been parsed, so a missing texture shows an empty frame
-        // instead of collapsing the decoration to nothing.
-        const int T = gPlugin->setup_applied && gPlugin->setup_border_thickness >= 0 ? gPlugin->setup_border_thickness : -1;
-
-        if (T >= 0)
-        {
-            info.desiredExtents.topLeft = Vector2D((double)T, (double)T);
-            info.desiredExtents.bottomRight = Vector2D((double)T, (double)T);
-        }
-        else
-        {
-            info.desiredExtents.topLeft.x = (double)(gPlugin->decoration_offset_left + NPI.padding[0] + P);
-            info.desiredExtents.topLeft.y = (double)(gPlugin->decoration_offset_top + NPI.padding[1] + P);
-            info.desiredExtents.bottomRight.x = (double)(gPlugin->decoration_offset_right + NPI.padding[2] + P);
-            info.desiredExtents.bottomRight.y = (double)(gPlugin->decoration_offset_bottom + NPI.padding[3] + P);
-        }
-    }
+    info.desiredExtents = currentExtents();
 
     // getPositioningInfo() is called many times per frame, per window: log only when
     // the values actually change, otherwise this floods the log and costs time on the
@@ -782,8 +786,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
 
     const auto scaledRounding = ROUNDING > 0 ? ROUNDING * pMonitor->m_scale - 2 /* idk why but otherwise it looks bad due to the gaps */ : 0;
 
-    m_seExtents = {Vector2D((double)gPlugin->decoration_offset_left, (double)gPlugin->decoration_offset_top),
-                   Vector2D((double)gPlugin->decoration_offset_right, (double)gPlugin->decoration_offset_bottom)};
+    m_seExtents = currentExtents();
 
     const auto DECOBOX = assignedBoxGlobal();
 
@@ -1171,12 +1174,12 @@ bool CHyprWindowDecorator::isPointOnBar(Vector2D COORDS)
     if (!VECINRECT(COORDS, 0, 0, BOX.w, BOX.h))
         return false;
 
-    const auto &NPI = gPlugin->activeNinepatch.defined ? gPlugin->activeNinepatch : gPlugin->inactiveNinepatch;
-    const auto P = gPlugin->decoration_padding;
-    const auto L = gPlugin->decoration_offset_left + NPI.padding[0] + P;
-    const auto T = gPlugin->decoration_offset_top + NPI.padding[1] + P;
-    const auto R = gPlugin->decoration_offset_right + NPI.padding[2] + P;
-    const auto B = gPlugin->decoration_offset_bottom + NPI.padding[3] + P;
+    // Same extents the layout reserved, so the clickable band always matches the frame.
+    const auto EXTENTS = currentExtents();
+    const auto L = EXTENTS.topLeft.x;
+    const auto T = EXTENTS.topLeft.y;
+    const auto R = EXTENTS.bottomRight.x;
+    const auto B = EXTENTS.bottomRight.y;
 
     if (COORDS.x >= L && COORDS.x < BOX.w - R && COORDS.y >= T && COORDS.y < BOX.h - B)
         return false;
