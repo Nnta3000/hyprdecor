@@ -456,6 +456,47 @@ static void testCairoFilter()
     cairo_surface_destroy(src);
 }
 
+// inset must not create a hole: the box the nine-patch is stretched over is the SAME
+// rectangle that layout reserved, so reserved == art + inset everywhere.
+static void testInsetFillsReservedBox()
+{
+    header("inset: reserved box == stretched box (no gap)");
+
+    const double winX = 100, winY = 100, winW = 300, winH = 200;
+
+    // art thickness as decided by the markers, and the user's inset
+    const double ART[4]    = {3, 9, 3, 3};    // L T R B
+    const double INSET[4]  = {4, 24, 4, 4};   // L T R B
+
+    // what getPositioningInfo() reserves
+    const double RES[4] = {ART[0] + INSET[0], ART[1] + INSET[1], ART[2] + INSET[2], ART[3] + INSET[3]};
+
+    // what assignedBoxGlobal() derives
+    const double boxX = winX - RES[0];
+    const double boxY = winY - RES[1];
+    const double boxW = winW + RES[0] + RES[2];
+    const double boxH = winH + RES[1] + RES[3];
+
+    // The window must sit exactly RES inside the box on every side: no extra margin.
+    CHECK(winX - boxX == RES[0], "left: window must start exactly at the reserved edge");
+    CHECK(winY - boxY == RES[1], "top: window must start exactly at the reserved edge");
+    CHECK((boxX + boxW) - (winX + winW) == RES[2], "right: no extra space");
+    CHECK((boxY + boxH) - (winY + winH) == RES[3], "bottom: no extra space");
+
+    // And the nine-patch must cover that whole box, so its middle band is positive.
+    SNinePatchInfo info;
+    info.border[0] = ART[0];
+    info.border[1] = ART[1];
+    info.border[2] = ART[2];
+    info.border[3] = ART[3];
+    info.defined   = true;
+
+    const auto L = NinePatch::layout(info, 21, 21, boxW, boxH, 1.0);
+    CHECK(!L.degraded, "frame must not degrade for a normal window");
+    CHECK(L.dx[0] == 0 && L.dy[0] == 0, "grid must start at the box origin");
+    CHECK(L.dx[3] == boxW && L.dy[3] == boxH, "grid must end at the box edge: no unpainted gap");
+}
+
 int main()
 {
     std::printf("hyprdecor nine-patch tests\n");
@@ -470,6 +511,7 @@ int main()
     testFrameBox();
     testArtScale();
     testCairoFilter();
+    testInsetFillsReservedBox();
 
     std::printf("\n%s (%d failure%s)\n", g_failures ? "FAILED" : "ALL PASSED", g_failures, g_failures == 1 ? "" : "s");
     return g_failures ? 1 : 0;

@@ -119,7 +119,13 @@ public:
     SNinePatchInfo activeNinepatch;
     SNinePatchInfo inactiveNinepatch;
     float ninepatch_middle_alpha = 0.F;
-    int decoration_inset = 0;
+    // Extra space added to the art thickness, per side, pushing the window inward.
+    // Layout reserves art + inset; the nine-patch is stretched over that same box, so
+    // there is no hole. A visual gap belongs in the texture.
+    int inset_left = 0;
+    int inset_top = 0;
+    int inset_right = 0;
+    int inset_bottom = 0;
     int decoration_offset_left = 0;
     int decoration_offset_right = 0;
     int decoration_offset_bottom = 0;

@@ -397,10 +397,22 @@ void CPlugin::update()
     decoration_offset_right  = SIDE(C.thickness.right, RESOLVE.padding[2], RESOLVE.border[2]) * SC;
     decoration_offset_bottom = SIDE(C.thickness.bottom, RESOLVE.padding[3], RESOLVE.border[3]) * SC;
 
+    // inset is additional space on top of the art. It is NOT drawn as a gap: the
+    // reserved box and the box the nine-patch stretches over are the same rectangle.
+    const auto INSET = [&](double v) { return v >= 0 ? (int)std::lround(v) : 0; };
+    inset_left   = INSET(C.inset.left);
+    inset_top    = INSET(C.inset.top);
+    inset_right  = INSET(C.inset.right);
+    inset_bottom = INSET(C.inset.bottom);
+
     Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] resolved extents L{} T{} R{} B{} at border.scale={} (markers: padding {} {} {} {}, border {} {} {} {})",
                                              decoration_offset_left, decoration_offset_top, decoration_offset_right, decoration_offset_bottom, SC,
                                              (int)RESOLVE.padding[0], (int)RESOLVE.padding[1], (int)RESOLVE.padding[2], (int)RESOLVE.padding[3],
                                              (int)RESOLVE.border[0], (int)RESOLVE.border[1], (int)RESOLVE.border[2], (int)RESOLVE.border[3]));
+
+    if (inset_left || inset_top || inset_right || inset_bottom)
+        Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] inset L{} T{} R{} B{} (added to the art, reserved box grows; no gap is drawn)",
+                                                 inset_left, inset_top, inset_right, inset_bottom));
 
     // Damage and update windows after all bars are invalidated
     for (auto bar : liveDecorators())
