@@ -22,12 +22,30 @@ static_assert(LUA_VERSION_NUM == 505, "hyprdecor must be built against Lua 5.5 (
 namespace {
     constexpr const char *TAG = "[HYPRDECOR] ";
 
-    // Raises a Lua error. This aborts the rest of the config evaluation, which is
-    // deliberate: a half-applied decoration is worse than a loud failure.
-    int raise(lua_State *L, const std::string &message)
+    // Raises a Lua error, aborting the rest of the config evaluation. Deliberate: a
+    // half-applied decoration is worse than a loud failure.
+    //
+    // lua_error() is a longjmp: it skips destructors of every live object in this
+    // frame. The message is therefore copied into a fixed buffer and pushed, and the
+    // longjmp happens with nothing else alive.
+    [[noreturn]] void raiseF(lua_State *L, const char *message) noexcept
     {
-        lua_pushlstring(L, message.data(), message.size());
-        return lua_error(L);
+        lua_pushstring(L, message);
+        lua_error(L); // does not return
+        std::abort();
+    }
+
+    // Builds the message in a nested scope so its std::string/format temporaries are
+    // destroyed before raiseF() longjmps.
+    template <typename... Args>
+    int raise(lua_State *L, std::format_string<Args...> fmt, Args &&...args)
+    {
+        char buf[1024]{};
+        {
+            const std::string MESSAGE = std::format(fmt, std::forward<Args>(args)...);
+            std::snprintf(buf, sizeof(buf), "%s", MESSAGE.c_str());
+        }
+        raiseF(L, buf);
     }
 
     bool hasField(lua_State *L, int tableIdx, const char *key)
@@ -41,23 +59,22 @@ namespace {
     }
 }
 
-const char *Hyprdecor::Lua::stringField(lua_State *L, int tableIdx, const char *key)
+std::optional<std::string> Hyprdecor::Lua::stringField(lua_State *L, int tableIdx, const char *key)
 {
     if (!lua_istable(L, tableIdx))
-        return nullptr;
+        return std::nullopt;
 
     lua_getfield(L, tableIdx, key);
     if (!lua_isstring(L, -1))
     {
         lua_pop(L, 1);
-        return nullptr;
+        return std::nullopt;
     }
 
-    // Copy before popping: never hand out a pointer into Lua's string table.
-    thread_local std::string scratch;
-    scratch = lua_tostring(L, -1);
+    const char *RAW = lua_tostring(L, -1);
+    std::string OUT = RAW ? RAW : "";
     lua_pop(L, 1);
-    return scratch.c_str();
+    return OUT;
 }
 
 double Hyprdecor::Lua::numberField(lua_State *L, int tableIdx, const char *key, double fallback)
@@ -80,7 +97,7 @@ double Hyprdecor::Lua::numberField(lua_State *L, int tableIdx, const char *key, 
 bool Hyprdecor::Lua::tableField(lua_State *L, int tableIdx, const char *key, const char *path)
 {
     if (!lua_istable(L, tableIdx))
-        raise(L, std::format("hyprdecor.setup: '{}' must be a table", path));
+        raise(L, "hyprdecor.setup: '{}' must be a table", path);
 
     lua_getfield(L, tableIdx, key);
     if (lua_isnil(L, -1))
@@ -92,7 +109,7 @@ bool Hyprdecor::Lua::tableField(lua_State *L, int tableIdx, const char *key, con
     if (!lua_istable(L, -1))
     {
         lua_pop(L, 1);
-        raise(L, std::format("hyprdecor.setup: '{}' must be a table", path));
+        raise(L, "hyprdecor.setup: '{}' must be a table", path);
     }
 
     return true;
@@ -125,12 +142,11 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
     if (!hasField(L, BORDER, "texture"))
         return raise(L, "hyprdecor.setup: 'defaults.border.texture' is required");
 
-    const char *TEXTURE = stringField(L, BORDER, "texture");
+    const auto TEXTURE = stringField(L, BORDER, "texture");
     if (!TEXTURE)
         return raise(L, "hyprdecor.setup: 'defaults.border.texture' must be a string");
 
-    // Copy immediately: the temporary lives in a reused scratch buffer.
-    const std::string BASE(TEXTURE);
+    const std::string BASE = *TEXTURE;
 
     if (BASE.empty())
         return raise(L, "hyprdecor.setup: 'defaults.border.texture' must not be empty");
@@ -143,13 +159,13 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
     if (ACTIVE.empty())
     {
         if (!gPlugin->m_szLastResolveError.empty())
-            return raise(L, std::format("hyprdecor.setup: cannot access texture \"{}\": {}",
-                                        BASE, gPlugin->m_szLastResolveError));
+            return raise(L, "hyprdecor.setup: cannot access texture \"{}\": {}",
+                         BASE, gPlugin->m_szLastResolveError);
 
-        return raise(L, std::format("hyprdecor.setup: texture not found: \"{}\" "
-                                    "(tried {}_active.png, {}_focused.png, {}active.png, {}.png). "
-                                    "Check that the path is absolute and that the compositor's user can read it.",
-                                    BASE, BASE, BASE, BASE, BASE));
+        return raise(L, "hyprdecor.setup: texture not found: \"{}\" "
+                        "(tried {}_active.png, {}_focused.png, {}active.png, {}.png). "
+                        "Check that the path is absolute and that the compositor's user can read it.",
+                        BASE, BASE, BASE, BASE, BASE);
     }
 
     if (!hasField(L, BORDER, "thickness"))
