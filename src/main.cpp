@@ -139,11 +139,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
         onNewWindow(nullptr /* unused */, std::any(w));
     }
 
-    // reloadConfig() emits config.reloaded, but that fires while the config is still
-    // being evaluated, i.e. before hl.plugin.hyprdecor.setup() in the same file.
-    // Relying on it alone left every update()-owned value uninitialised. Schedule a
-    // deferred update that waits for the values to be committed.
-    HyprlandAPI::reloadConfig();
+    // No reloadConfig() here: it re-enters the config manager while we are already
+    // inside it, and setup() schedules the update itself. Just make sure one runs.
     gPlugin->requestUpdate();
 
     return {"hyprdecor", "A plugin to add title bars to windows.", "Vaxry", "1.0"};
