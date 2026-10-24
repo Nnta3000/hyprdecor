@@ -118,7 +118,6 @@ public:
     std::string ninepatch_inactive;
     SNinePatchInfo activeNinepatch;
     SNinePatchInfo inactiveNinepatch;
-    float ninepatch_middle_alpha = 0.F;
     // Extra space added to the art thickness, per side, pushing the window inward.
     // Layout reserves art + inset; the nine-patch is stretched over that same box, so
     // there is no hole. A visual gap belongs in the texture.

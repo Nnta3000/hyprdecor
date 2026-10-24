@@ -238,14 +238,6 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
         if (hasField(L, BORDER, "inset") && !readThicknessNamed(L, BORDER, "inset", NEXT.inset))
             return raise(L, "hyprdecor.setup: 'defaults.border.inset' must be a number or a table {{ left, top, right, bottom }}");
 
-        if (hasField(L, BORDER, "alpha"))
-        {
-            const double ALPHA = numberField(L, BORDER, "alpha", -1);
-            if (ALPHA < 0.0 || ALPHA > 1.0)
-                return raise(L, "hyprdecor.setup: 'defaults.border.alpha' must be between 0.0 and 1.0");
-            NEXT.middleAlpha = ALPHA;
-        }
-
         if (hasField(L, BORDER, "scale"))
         {
             const double ART_SCALE = numberField(L, BORDER, "scale", 1);
@@ -439,10 +431,10 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
     NEXT.applies = gPlugin->cfg.applies + 1;
     gPlugin->cfg = NEXT;
 
-    Log::logger->log(Log::DEBUG, std::format("{}setup(): texture=\"{}\" thickness L{} T{} R{} B{} artScale={} alpha={} font=\"{}\"",
+    Log::logger->log(Log::DEBUG, std::format("{}setup(): texture=\"{}\" thickness L{} T{} R{} B{} artScale={} font=\"{}\"",
                                              TAG, gPlugin->cfg.textureBase, gPlugin->cfg.thickness.left, gPlugin->cfg.thickness.top,
                                              gPlugin->cfg.thickness.right, gPlugin->cfg.thickness.bottom, gPlugin->cfg.artScale,
-                                             gPlugin->cfg.middleAlpha, gPlugin->cfg.titleFont));
+                                             gPlugin->cfg.titleFont));
 
     // Deferred: applying the configuration drives layout and damage, which must not
     // happen re-entrantly inside a Lua callback.

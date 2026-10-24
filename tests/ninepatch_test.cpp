@@ -497,6 +497,57 @@ static void testInsetFillsReservedBox()
     CHECK(L.dx[3] == boxW && L.dy[3] == boxH, "grid must end at the box edge: no unpainted gap");
 }
 
+// Every one of the 9 cells must be painted: the window is always drawn on top, so a
+// skipped centre would only ever hide frame art.
+static void testAllNineCellsPainted()
+{
+    header("compose: all nine cells painted (no hollow centre)");
+
+    // Source: distinct solid colour everywhere, so any skipped cell shows as a hole.
+    cairo_surface_t *src = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 9, 9);
+    cairo_t *sc = cairo_create(src);
+    cairo_set_source_rgba(sc, 1, 0, 0, 1);
+    cairo_paint(sc);
+    cairo_destroy(sc);
+    cairo_surface_flush(src);
+
+    SNinePatchInfo info;
+    info.border[0] = info.border[2] = 2;
+    info.border[1] = info.border[3] = 2;
+    info.defined   = true;
+
+    const auto L = NinePatch::layout(info, 9, 9, 90, 60, 1.0);
+
+    cairo_surface_t *out = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 90, 60);
+    cairo_t *cr = cairo_create(out);
+    cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+    cairo_paint(cr);
+    cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+            NinePatch::drawSized(cr, src, L.sx[i], L.sy[j], L.sx[i + 1] - L.sx[i], L.sy[j + 1] - L.sy[j], L.dx[i], L.dy[j], L.dx[i + 1] - L.dx[i],
+                                 L.dy[j + 1] - L.dy[j]);
+
+    cairo_destroy(cr);
+    cairo_surface_flush(out);
+
+    // The centre cell's area must not be transparent.
+    const uint32_t CENTRE = pixelAt(out, 45, 30);
+    CHECK(((CENTRE >> 24) & 0xFF) == 0xFF, "centre cell must be painted, got alpha %u", (CENTRE >> 24) & 0xFF);
+
+    // Scan the whole surface for any transparent pixel.
+    int holes = 0;
+    for (int y = 0; y < 60; ++y)
+        for (int x = 0; x < 90; ++x)
+            if (((pixelAt(out, x, y) >> 24) & 0xFF) != 0xFF)
+                ++holes;
+    CHECK(holes == 0, "frame surface must be fully painted, found %d transparent pixels", holes);
+
+    cairo_surface_destroy(out);
+    cairo_surface_destroy(src);
+}
+
 int main()
 {
     std::printf("hyprdecor nine-patch tests\n");
@@ -512,6 +563,7 @@ int main()
     testArtScale();
     testCairoFilter();
     testInsetFillsReservedBox();
+    testAllNineCellsPainted();
 
     std::printf("\n%s (%d failure%s)\n", g_failures ? "FAILED" : "ALL PASSED", g_failures, g_failures == 1 ? "" : "s");
     return g_failures ? 1 : 0;
