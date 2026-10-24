@@ -15,6 +15,7 @@ set_target_properties(hyprdecor PROPERTIES PREFIX "")
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(deps REQUIRED IMPORTED_TARGET
     hyprland
+    lua5.5
     libdrm
     libinput
     libudev
@@ -26,3 +27,16 @@ pkg_check_modules(deps REQUIRED IMPORTED_TARGET
 target_link_libraries(hyprdecor PRIVATE rt PkgConfig::deps)
 
 install(TARGETS hyprdecor)
+
+# ---------------------------------------------------------------------------
+# Standalone tests for the nine-patch core (no Hyprland, no GPU required).
+#   cmake --build build --target ninepatch_test && ./build/ninepatch_test
+# ---------------------------------------------------------------------------
+option(HYPRDECOR_BUILD_TESTS "Build the standalone nine-patch tests" ON)
+if(HYPRDECOR_BUILD_TESTS)
+    add_executable(ninepatch_test tests/ninepatch_test.cpp)
+    target_include_directories(ninepatch_test PRIVATE src)
+    pkg_check_modules(cairo_only REQUIRED IMPORTED_TARGET cairo)
+    target_link_libraries(ninepatch_test PRIVATE PkgConfig::cairo_only)
+    target_compile_options(ninepatch_test PRIVATE -Wall -Wextra)
+endif()

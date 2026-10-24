@@ -4,6 +4,8 @@
 
 #include <hyprland/src/render/decorations/IHyprWindowDecoration.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
+#include <hyprland/src/render/gl/GLTexture.hpp>
+#include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/devices/IPointer.hpp>
 #include <hyprland/src/devices/ITouch.hpp>
 #include <hyprland/src/desktop/rule/windowRule/WindowRule.hpp>
@@ -57,11 +59,14 @@ private:
 
   CBox m_bAssignedBox;
 
-  SP<CTexture> m_pTextTex;
-  SP<CTexture> m_pButtonsTex;
-  SP<CTexture> m_pBarFinalTex;
+  // Last window size we logged from getPositioningInfo(), to avoid log spam.
+  Vector2D m_vLastLoggedSize = {-1, -1};
 
-  SP<CTexture> m_pAppIconTex;
+  SP<Render::ITexture> m_pTextTex;
+  SP<Render::ITexture> m_pButtonsTex;
+  SP<Render::ITexture> m_pBarFinalTex;
+
+  SP<Render::ITexture> m_pAppIconTex;
   std::string m_szLastAppId;
 
   bool m_bWindowSizeChanged = false;
@@ -82,33 +87,33 @@ private:
 
   void renderPass(PHLMONITOR, float const &a);
   void renderBarTitle(const Vector2D &bufferSize, const float scale);
-  void renderText(SP<CTexture> out, const std::string &text, const CHyprColor &color, const Vector2D &bufferSize, const float scale, const int fontSize);
+  void renderText(SP<Render::ITexture> out, const std::string &text, const CHyprColor &color, const Vector2D &bufferSize, const float scale, const int fontSize);
   bool renderBarButtons(const Vector2D &bufferSize, const float scale);
   void renderBarButtonsText(CBox *barBox, const float scale, const float a);
-  void renderNinePatch(SP<CTexture> tex, const CBox &box, const float margins[4], const float a, const float middleAlpha);
+  void renderNinePatch(SP<Render::ITexture> tex, const CBox &box, const float margins[4], const float a, const float middleAlpha);
   void damageOnButtonHover();
 
   bool inputIsValid();
   bool isPointOnBar(Vector2D COORDS);
-  void onMouseButton(SCallbackInfo &info, IPointer::SButtonEvent e);
-  void onTouchDown(SCallbackInfo &info, ITouch::SDownEvent e);
-  void onTouchUp(SCallbackInfo &info, ITouch::SUpEvent e);
+  void onMouseButton(Event::SCallbackInfo &info, IPointer::SButtonEvent e);
+  void onTouchDown(Event::SCallbackInfo &info, ITouch::SDownEvent e);
+  void onTouchUp(Event::SCallbackInfo &info, ITouch::SUpEvent e);
   void onMouseMove(Vector2D coords);
-  void onTouchMove(SCallbackInfo &info, ITouch::SMotionEvent e);
+  void onTouchMove(Event::SCallbackInfo &info, ITouch::SMotionEvent e);
 
-  void handleDownEvent(SCallbackInfo &info, std::optional<ITouch::SDownEvent> touchEvent);
-  void handleUpEvent(SCallbackInfo &info);
+  void handleDownEvent(Event::SCallbackInfo &info, std::optional<ITouch::SDownEvent> touchEvent);
+  void handleUpEvent(Event::SCallbackInfo &info);
   void handleMovement();
   int indexToButton(Vector2D COORDS);
 
   CBox assignedBoxGlobal();
 
-  SP<HOOK_CALLBACK_FN> m_pMouseButtonCallback;
-  SP<HOOK_CALLBACK_FN> m_pTouchDownCallback;
-  SP<HOOK_CALLBACK_FN> m_pTouchUpCallback;
+  CHyprSignalListener m_pMouseButtonCallback;
+  CHyprSignalListener m_pTouchDownCallback;
+  CHyprSignalListener m_pTouchUpCallback;
 
-  SP<HOOK_CALLBACK_FN> m_pTouchMoveCallback;
-  SP<HOOK_CALLBACK_FN> m_pMouseMoveCallback;
+  CHyprSignalListener m_pTouchMoveCallback;
+  CHyprSignalListener m_pMouseMoveCallback;
 
   std::string m_szLastTitle;
   Vector2D m_vLastTitleSize;

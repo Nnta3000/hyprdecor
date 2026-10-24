@@ -5,197 +5,79 @@
 #include <hyprland/src/managers/SeatManager.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/render/Renderer.hpp>
-#include <hyprland/src/managers/LayoutManager.hpp>
+#include <hyprland/src/layout/LayoutManager.hpp>
 #include <hyprland/src/config/ConfigManager.hpp>
-#include <hyprland/src/managers/animation/AnimationManager.hpp>
+#include <hyprland/src/animation/AnimationManager.hpp>
 #include <hyprland/src/protocols/LayerShell.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
+#include <hyprland/src/render/gl/GLTexture.hpp>
+#include <hyprland/src/event/EventBus.hpp>
 #include <pango/pangocairo.h>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <format>
+#include <libdrm/drm_fourcc.h>
 #include "plugin.hpp"
+#include "ninepatch.hpp"
+
+// Nine-patch parsing and composition live in ninepatch.hpp so they can be unit
+// tested without Hyprland (see tests/ninepatch_test.cpp). These wrappers only add
+// the plugin-specific bits: logging and optional icon pre-scaling.
 
 static cairo_surface_t *loadSurface(std::string path, SNinePatchInfo *pInfo = nullptr, int targetSize = 0)
 {
     if (path.empty())
-        return nullptr;
-
-    // Handle PNG files
-    cairo_surface_t *rawSurface = cairo_image_surface_create_from_png(path.c_str());
-
-    if (cairo_surface_status(rawSurface) != CAIRO_STATUS_SUCCESS)
     {
-        cairo_surface_destroy(rawSurface);
+        Log::logger->log(Log::WARN, "[HYPRDECOR] loadSurface called with an empty path");
         return nullptr;
     }
 
+    // Icon pre-scaling path: load raw, then resample to targetSize.
     if (!pInfo && targetSize > 0)
     {
-        int w = cairo_image_surface_get_width(rawSurface);
-        int h = cairo_image_surface_get_height(rawSurface);
+        cairo_surface_t *raw = NinePatch::load(path, nullptr);
+        if (!raw)
+        {
+            Log::logger->log(Log::ERR, std::format("[HYPRDECOR] failed to read \"{}\"", path));
+            return nullptr;
+        }
 
-        cairo_surface_t *scaledSurface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, targetSize, targetSize);
-        cairo_t *cr = cairo_create(scaledSurface);
+        const int w = cairo_image_surface_get_width(raw);
+        const int h = cairo_image_surface_get_height(raw);
 
-        double scale = (double)targetSize / std::max(w, h);
-        double sw = w * scale;
-        double sh = h * scale;
-
-        cairo_scale(cr, scale, scale);
-        cairo_set_source_surface(cr, rawSurface, (targetSize / scale - w) / 2.0, (targetSize / scale - h) / 2.0);
+        cairo_surface_t *scaled = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, targetSize, targetSize);
+        cairo_t *cr = cairo_create(scaled);
+        const double SCALE = (double)targetSize / std::max(w, h);
+        cairo_scale(cr, SCALE, SCALE);
+        cairo_set_source_surface(cr, raw, (targetSize / SCALE - w) / 2.0, (targetSize / SCALE - h) / 2.0);
         cairo_paint(cr);
-
         cairo_destroy(cr);
-        cairo_surface_destroy(rawSurface);
-        return scaledSurface;
+        cairo_surface_destroy(raw);
+        return scaled;
     }
 
-    if (!pInfo)
-        return rawSurface;
+    cairo_surface_t *out = NinePatch::load(path, pInfo);
 
-    // Parse ninepatch if pInfo is provided
-    int w = cairo_image_surface_get_width(rawSurface);
-    int h = cairo_image_surface_get_height(rawSurface);
+    if (!out)
+        Log::logger->log(Log::ERR, std::format("[HYPRDECOR] cairo failed to load \"{}\"", path));
+    else if (pInfo && !pInfo->defined)
+        Log::logger->log(Log::WARN, std::format("[HYPRDECOR] \"{}\" has no nine-patch markers", path));
 
-    if (w < 3 || h < 3)
-        return rawSurface;
-
-    unsigned char *data = cairo_image_surface_get_data(rawSurface);
-    int stride = cairo_image_surface_get_stride(rawSurface);
-
-    auto isBlack = [&](int x, int y)
-    {
-        uint32_t pixel = *(uint32_t *)(data + y * stride + x * 4);
-        // Cairo ARGB32: 0xAARRGGBB. Standard .9.png markers are opaque black.
-        return ((pixel >> 24) & 0xFF) == 255 && ((pixel >> 16) & 0xFF) == 0 && ((pixel >> 8) & 0xFF) == 0 && (pixel & 0xFF) == 0;
-    };
-
-    // Extract markers
-    // Top (stretch X)
-    int firstX = -1, lastX = -1;
-    for (int x = 1; x < w - 1; ++x)
-    {
-        if (isBlack(x, 0))
-        {
-            if (firstX == -1)
-                firstX = x;
-            lastX = x;
-        }
-    }
-    if (firstX != -1)
-    {
-        pInfo->border[0] = firstX - 1;
-        pInfo->border[2] = (w - 2) - lastX;
-    }
-
-    // Left (stretch Y)
-    int firstY = -1, lastY = -1;
-    for (int y = 1; y < h - 1; ++y)
-    {
-        if (isBlack(0, y))
-        {
-            if (firstY == -1)
-                firstY = y;
-            lastY = y;
-        }
-    }
-    if (firstY != -1)
-    {
-        pInfo->border[1] = firstY - 1;
-        pInfo->border[3] = (h - 2) - lastY;
-    }
-
-    // Bottom (content X)
-    firstX = -1, lastX = -1;
-    for (int x = 1; x < w - 1; ++x)
-    {
-        if (isBlack(x, h - 1))
-        {
-            if (firstX == -1)
-                firstX = x;
-            lastX = x;
-        }
-    }
-    if (firstX != -1)
-    {
-        pInfo->padding[0] = firstX - 1;
-        pInfo->padding[2] = (w - 2) - lastX;
-    }
-
-    // Right (content Y)
-    firstY = -1, lastY = -1;
-    for (int y = 1; y < h - 1; ++y)
-    {
-        if (isBlack(w - 1, y))
-        {
-            if (firstY == -1)
-                firstY = y;
-            lastY = y;
-        }
-    }
-    if (firstY != -1)
-    {
-        pInfo->padding[1] = firstY - 1;
-        pInfo->padding[3] = (h - 2) - lastY;
-    }
-
-    pInfo->defined = true;
-
-    cairo_surface_t *cropped = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w - 2, h - 2);
-    cairo_t *cr = cairo_create(cropped);
-    cairo_set_source_surface(cr, rawSurface, -1, -1);
-    cairo_paint(cr);
-    cairo_destroy(cr);
-    cairo_surface_destroy(rawSurface);
-
-    return cropped;
+    return out;
 }
 
 static void drawSizedSurface(cairo_t *cr, cairo_surface_t *surface, double sx, double sy, double sw, double sh, double dx, double dy, double dw, double dh)
 {
-    if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0)
-        return;
-    cairo_save(cr);
-    cairo_rectangle(cr, dx, dy, dw, dh);
-    cairo_clip(cr);
-    cairo_translate(cr, dx, dy);
-    cairo_scale(cr, dw / sw, dh / sh);
-    cairo_set_source_surface(cr, surface, -sx, -sy);
-    cairo_paint(cr);
-    cairo_restore(cr);
+    NinePatch::drawSized(cr, surface, sx, sy, sw, sh, dx, dy, dw, dh);
 }
 
 static void drawRepeatedSurface(cairo_t *cr, cairo_surface_t *surface, double sx, double sy, double sw, double sh, double dx, double dy, double dw, double dh)
 {
-    if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0)
-        return;
-    cairo_save(cr);
-    cairo_rectangle(cr, dx, dy, dw, dh);
-    cairo_clip(cr);
-
-    // Create a pattern from the surface region
-    cairo_surface_t *patternSurface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, sw, sh);
-    cairo_t *patternCr = cairo_create(patternSurface);
-    cairo_set_source_surface(patternCr, surface, -sx, -sy);
-    cairo_paint(patternCr);
-    cairo_destroy(patternCr);
-
-    // Create repeating pattern
-    cairo_pattern_t *pattern = cairo_pattern_create_for_surface(patternSurface);
-    cairo_pattern_set_extend(pattern, CAIRO_EXTEND_REPEAT);
-
-    // Position and paint the pattern
-    cairo_translate(cr, dx, dy);
-    cairo_set_source(cr, pattern);
-    cairo_paint(cr);
-
-    cairo_pattern_destroy(pattern);
-    cairo_surface_destroy(patternSurface);
-    cairo_restore(cr);
+    NinePatch::drawRepeated(cr, surface, sx, sy, sw, sh, dx, dy, dw, dh);
 }
 
-static void loadTexture(std::string path, SP<CTexture> &out, bool linear = true, int targetSize = 0)
+static void loadTexture(std::string path, SP<Render::ITexture> &out, bool linear = true, int targetSize = 0)
 {
     if (path.empty() || out->m_texID != 0)
         return;
@@ -208,17 +90,15 @@ static void loadTexture(std::string path, SP<CTexture> &out, bool linear = true,
     const auto WIDTH = cairo_image_surface_get_width(CAIROSURFACE);
     const auto HEIGHT = cairo_image_surface_get_height(CAIROSURFACE);
 
-    out->allocate();
-    glBindTexture(GL_TEXTURE_2D, out->m_texID);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, linear ? GL_LINEAR : GL_NEAREST);
+    // Cairo ARGB32 is premultiplied BGRA in little-endian memory, i.e. DRM
+    // ARGB8888. Uploading it as GL_RGBA ignored both the channel order and the
+    // premultiplication, which rendered the transparent frame as black.
+    out->allocate(Vector2D{(double)WIDTH, (double)HEIGHT}, DRM_FORMAT_ARGB8888);
+    out->setTexParameter(GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
+    out->setTexParameter(GL_TEXTURE_MIN_FILTER, linear ? GL_LINEAR : GL_NEAREST);
 
-#ifndef GLES2
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_BLUE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
-#endif
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, WIDTH, HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, DATA);
+    CRegion damage = CBox{0, 0, (double)WIDTH, (double)HEIGHT};
+    out->update(DRM_FORMAT_ARGB8888, DATA, cairo_image_surface_get_stride(CAIROSURFACE), damage);
 
     out->m_size = {(double)WIDTH, (double)HEIGHT};
 
@@ -381,7 +261,7 @@ static std::string resolveIconPath(const std::string &iconName)
     return "";
 }
 
-static void loadAppIcon(const std::string &appId, SP<CTexture> &out, int targetSize)
+static void loadAppIcon(const std::string &appId, SP<Render::ITexture> &out, int targetSize)
 {
     if (appId.empty())
         return;

@@ -3,7 +3,11 @@
 #include <hyprlang.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/render/Texture.hpp>
+#include <hyprland/src/render/OpenGL.hpp>
+#include <hyprland/src/render/gl/GLTexture.hpp>
+#include <hyprland/src/event/EventBus.hpp>
 #include <cairo/cairo.h>
+#include "ninepatch.hpp"
 
 struct SHyprButton
 {
@@ -11,10 +15,10 @@ struct SHyprButton
     Vector2D size = {10, 10};
 
     // textured states
-    SP<CTexture> texActive = makeShared<CTexture>();
-    SP<CTexture> texInactive = makeShared<CTexture>();
-    SP<CTexture> texHover = makeShared<CTexture>();
-    SP<CTexture> texPressed = makeShared<CTexture>();
+    SP<Render::ITexture> texActive = makeShared<Render::GL::CGLTexture>();
+    SP<Render::ITexture> texInactive = makeShared<Render::GL::CGLTexture>();
+    SP<Render::ITexture> texHover = makeShared<Render::GL::CGLTexture>();
+    SP<Render::ITexture> texPressed = makeShared<Render::GL::CGLTexture>();
 
     std::string pathActive = "";
     std::string pathInactive = "";
@@ -23,13 +27,6 @@ struct SHyprButton
 };
 
 class CHyprWindowDecorator;
-
-struct SNinePatchInfo
-{
-    float border[4] = {0, 0, 0, 0};  // L, T, R, B
-    float padding[4] = {0, 0, 0, 0}; // L, T, R, B (content)
-    bool defined = false;
-};
 
 class CPlugin
 {
@@ -40,37 +37,81 @@ public:
     void update();
     void loadAllTextures();
 
-    CHyprColor bar_color;
-    int decoration_offset_top;
-    CHyprColor col_text;
-    int decoration_title_size;
-    bool decoration_title_enabled;
-    bool bar_blur;
-    std::string bar_text_font;
-    float decoration_title_align;
-    std::string decoration_title_placement;
-    bool bar_part_of_window;
-    bool bar_precedence_over_border;
-    std::string bar_buttons_alignment;
-    int decoration_padding;
-    int bar_button_padding;
-    bool enabled;
+    // Coalesced update: safe to call from a Lua callback or an event handler.
+    void requestUpdate();
+    void processPendingUpdate();
+
+    // Queues a layout recalculation for the next main-loop tick. Safe to call from
+    // inside a render pass, unlike recalculateMonitor() itself.
+    void requestRelayout();
+
+    // True once the config manager has committed this plugin's values.
+    bool configReady() const;
+
+    // Shows an on-screen notification (and logs) for a hard configuration error.
+    void notifyError(const std::string &message);
+
+    // Human-readable state, for `hyprctl hyprdecor status`.
+    std::string statusString() const;
+
+    // First existing file for `base` + one of `suffixes`; empty when none match.
+    std::string resolveTexturePath(const std::string &base, const std::vector<std::string> &suffixes, const std::string &fallback = "");
+
+    CHyprColor bar_color = CHyprColor(0.2F, 0.2F, 0.2F, 0.53F);
+    int decoration_offset_top = 0;
+    CHyprColor col_text = CHyprColor(1, 1, 1, 1);
+    int decoration_title_size = 10;
+    bool decoration_title_enabled = true;
+    bool bar_blur = false;
+    std::string bar_text_font = "Sans";
+    float decoration_title_align = 0.5F;
+    std::string decoration_title_placement = "top";
+    bool bar_part_of_window = true;
+    bool bar_precedence_over_border = false;
+    std::string bar_buttons_alignment = "right";
+    int decoration_padding = 7;
+    int bar_button_padding = 5;
+    bool enabled = true;
     std::string on_double_click;
 
     std::string ninepatch_texture;
+
+    // Values coming from hl.plugin.hyprdecor.setup(). They take precedence over the
+    // flat plugin:hyprdecor:* config values, because setup() is the structured API.
+    bool        setup_applied = false;
+    bool        ninepatch_forceTexture = false;
+    int         setup_border_thickness = -1; // < 0 = keep the flat config value
+    float       setup_border_alpha = -1.F;   // < 0 = keep the flat config value
+
+    // Last filesystem problem hit by resolveTexturePath(), if any. Lets the Lua
+    // error distinguish "missing" from "permission denied".
+    std::string m_szLastResolveError;
+
+    // Deferred update, see CPlugin::requestUpdate().
+    bool m_bUpdatePending = false;
+    bool m_bRelayoutPending = false;
+    int  m_iUpdateRetries = 0;
+
+    // Last render state, exposed by CPlugin::statusString().
+    int  lastBarW = 0;
+    int  lastBarH = 0;
+    bool lastDrawn = false;
     std::string ninepatch_active;
     std::string ninepatch_inactive;
     SNinePatchInfo activeNinepatch;
     SNinePatchInfo inactiveNinepatch;
-    float ninepatch_middle_alpha;
-    int decoration_inset;
-    int decoration_offset_left;
-    int decoration_offset_right;
-    int decoration_offset_bottom;
-    bool ninepatch_linear_filtering;
-    bool ninepatch_repeat;
-    bool decoration_appicon_enabled;
+    float ninepatch_middle_alpha = 0.F;
+    int decoration_inset = 0;
+    int decoration_offset_left = 0;
+    int decoration_offset_right = 0;
+    int decoration_offset_bottom = 0;
+    bool ninepatch_linear_filtering = true;
+    bool ninepatch_repeat = false;
+    bool decoration_appicon_enabled = true;
     bool decoration_render_above;
+    CHyprColor bar_outline_color = CHyprColor(1, 1, 1, 1);
+    int bar_outline_width = 1;
+    bool bar_outline_always = true;
     Vector2D decoration_appicon_offset;
 
     // Parsed results
@@ -79,10 +120,23 @@ public:
 
     HANDLE m_pHandle = nullptr;
     std::vector<SHyprButton> m_vButtons;
-    std::vector<CHyprWindowDecorator *> m_vBars;
+
+    // Windows we have decorated. Decorators themselves are owned by Hyprland
+    // (window->m_windowDecorations); storing their raw pointers here went stale as
+    // soon as a decoration was destroyed or replaced, and passing a dangling pointer
+    // to repositionDeco corrupted the compositor state.
+    std::vector<PHLWINDOWREF> m_vWindows;
+
+    // Live decorator for a window, or nullptr. Walks Hyprland's own list, so it can
+    // never return a freed decorator.
+    static CHyprWindowDecorator *decoratorFor(PHLWINDOW pWindow);
+
+    // All live decorators we own.
+    std::vector<CHyprWindowDecorator *> liveDecorators() const;
     uint32_t m_nobarRuleIdx = 0;
     uint32_t m_barColorRuleIdx = 0;
     uint32_t m_titleColorRuleIdx = 0;
+    std::vector<CHyprSignalListener> m_vListeners;
 };
 
 inline std::unique_ptr<CPlugin> gPlugin;
