@@ -478,15 +478,7 @@ void CHyprWindowDecorator::renderText(SP<Render::ITexture> out, const std::strin
 
     cairo_surface_flush(CAIROSURFACE);
 
-    // copy the data to an OpenGL texture we have
-    const auto DATA = cairo_image_surface_get_data(CAIROSURFACE);
-    out->allocate(Vector2D{(double)cairo_image_surface_get_width(CAIROSURFACE), (double)cairo_image_surface_get_height(CAIROSURFACE)}, DRM_FORMAT_ARGB8888);
-    out->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    out->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    {
-        CRegion DMG = CBox{0, 0, bufferSize.x, bufferSize.y};
-        out->update(DRM_FORMAT_ARGB8888, DATA, cairo_image_surface_get_stride(CAIROSURFACE), DMG);
-    }
+    uploadCairoSurface(out, CAIROSURFACE, false);
 
     // delete cairo
     cairo_destroy(CAIRO);
@@ -570,17 +562,7 @@ void CHyprWindowDecorator::renderBarTitle(const Vector2D &bufferSize, const floa
 
     g_object_unref(layout);
 
-    cairo_surface_flush(CAIROSURFACE);
-
-    // copy the data to an OpenGL texture we have
-    const auto DATA = cairo_image_surface_get_data(CAIROSURFACE);
-    m_pTextTex->allocate(Vector2D{(double)cairo_image_surface_get_width(CAIROSURFACE), (double)cairo_image_surface_get_height(CAIROSURFACE)}, DRM_FORMAT_ARGB8888);
-    m_pTextTex->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    m_pTextTex->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    {
-        CRegion DMG = CBox{0, 0, bufferSize.x, bufferSize.y};
-        m_pTextTex->update(DRM_FORMAT_ARGB8888, DATA, cairo_image_surface_get_stride(CAIROSURFACE), DMG);
-    }
+    uploadCairoSurface(m_pTextTex, CAIROSURFACE, false);
 
     m_pTextTex->m_size = bufferSize;
 
@@ -627,15 +609,7 @@ bool CHyprWindowDecorator::renderBarButtons(const Vector2D &bufferSize, [[maybe_
 
     // (upstream computed a running button offset here and never used it)
 
-    // copy the data to an OpenGL texture we have
-    const auto DATA = cairo_image_surface_get_data(CAIROSURFACE);
-    m_pButtonsTex->allocate(Vector2D{(double)cairo_image_surface_get_width(CAIROSURFACE), (double)cairo_image_surface_get_height(CAIROSURFACE)}, DRM_FORMAT_ARGB8888);
-    m_pButtonsTex->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    m_pButtonsTex->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    {
-        CRegion DMG = CBox{0, 0, bufferSize.x, bufferSize.y};
-        m_pButtonsTex->update(DRM_FORMAT_ARGB8888, DATA, cairo_image_surface_get_stride(CAIROSURFACE), DMG);
-    }
+    uploadCairoSurface(m_pButtonsTex, CAIROSURFACE, false);
 
     m_pButtonsTex->m_size = bufferSize;
 
@@ -926,36 +900,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
 
             cairo_surface_flush(CAIROSURFACE);
 
-            const auto DATA = cairo_image_surface_get_data(CAIROSURFACE);
-            const int BFW = cairo_image_surface_get_width(CAIROSURFACE);
-            const int BFH = cairo_image_surface_get_height(CAIROSURFACE);
-
-            // Direct GL upload. This is the path that demonstrably rendered on screen;
-            // the CGLTexture::update(DRM_FORMAT_ARGB8888, ...) variant uploaded nothing
-            // and left the texture black. Cairo ARGB32 memory is BGRA in little-endian,
-            // which GL_RGBA + R/B swizzle maps back to RGBA correctly.
-            m_pBarFinalTex->allocate(Vector2D{(double)BFW, (double)BFH});
-            glBindTexture(GL_TEXTURE_2D, m_pBarFinalTex->m_texID);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gPlugin->ninepatch_linear_filtering ? GL_LINEAR : GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gPlugin->ninepatch_linear_filtering ? GL_LINEAR : GL_NEAREST);
-#ifndef GLES2
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_BLUE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
-#endif
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, BFW, BFH, 0, GL_RGBA, GL_UNSIGNED_BYTE, DATA);
-
-            m_pBarFinalTex->m_size = {(double)BFW, (double)BFH};
-
-            // Sample the BORDER, not the centre: with alpha 0 the centre is transparent
-            // by design and sampling it says nothing.
-            {
-                const auto *PX = (const uint32_t *)DATA;
-                const uint32_t TL = PX[0];
-                const uint32_t MIDLEFT = PX[(BFH / 2) * BFW + 2];
-                const uint32_t MIDTOP = PX[2 * BFW + BFW / 2];
-                Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] composed {}x{}: TL=0x{:08x} mid-left=0x{:08x} mid-top=0x{:08x}",
-                                                         BFW, BFH, TL, MIDLEFT, MIDTOP));
-            }
+            uploadCairoSurface(m_pBarFinalTex, CAIROSURFACE, gPlugin->ninepatch_linear_filtering);
 
             cairo_destroy(CAIRO);
             cairo_surface_destroy(CAIROSURFACE);
