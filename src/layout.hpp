@@ -118,8 +118,7 @@ struct SItemSpec
     double       scale = 1;
     // Nine-patch markers, used when `ninepatch` is set.
     SNinePatchInfo npi;
-    // Present only for the title, which is sized by what its neighbours leave.
-    bool         isTitle = false;
+
 };
 
 struct SResolvedItem
@@ -143,6 +142,9 @@ struct SResult
     std::vector<SResolvedItem> items;
     // True when the neighbours left the title no room, so nothing is drawn for it.
     bool titleVoids = false;
+    // The title is an ITEM (kind == Title) like any other, so its rectangle appears in
+    // `items`. This index points at it for convenience, or -1 when there is none.
+    int titleIndex = -1;
 };
 
 // The band a region occupies inside the decoration box, in logical px. `top`/`bottom`
@@ -425,6 +427,10 @@ inline SResult compute(const SFrameMetrics &m, const std::vector<SItemSpec> &top
         // Any region's title that cannot fit voids; there is only ever one title today.
         if (voided)
             result.titleVoids = true;
+
+        for (size_t k = 0; k < result.items.size(); ++k)
+            if (result.items[k].kind == eItemKind::Title && result.titleIndex < 0)
+                result.titleIndex = (int)k;
     }
 
     return result;

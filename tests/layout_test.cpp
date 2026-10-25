@@ -128,7 +128,6 @@ static void testTitleFills()
     Layout::SItemSpec title;
     title.id      = 1;
     title.kind    = Layout::eItemKind::Title;
-    title.isTitle = true;
     title.fill    = true;
     title.weight  = 1;
     specs.push_back(title);
@@ -140,6 +139,10 @@ static void testTitleFills()
     // start uses 13, end uses 13, so the gap is 433 - 13 - 13 = 407.
     const auto &T = R.items[1];
     CHECK_RECT(T.rect, 20 + 13, 0, 433 - 13 - 13, 37, "title spans the free gap, full band height");
+
+    // The title is an ordinary item, so it is in the list and reachable by index.
+    CHECK(R.titleIndex == 1, "title is reported as an item, got index %d", R.titleIndex);
+    CHECK(R.items[R.titleIndex].kind == Layout::eItemKind::Title, "the indexed item is the title");
 }
 
 // No room for the title: it is dropped and the caller is told, so nothing spills over.
@@ -156,7 +159,6 @@ static void testTitleVoids()
     Layout::SItemSpec title;
     title.id      = 1;
     title.kind    = Layout::eItemKind::Title;
-    title.isTitle = true;
     title.fill    = true;
     title.weight  = 1;
     specs.push_back(title);
@@ -396,11 +398,11 @@ static void testFillWeights()
     specs.push_back(imageItem(0, 40, 10, Layout::eAlign::Start, 0));
 
     Layout::SItemSpec a;
-    a.id = 1; a.kind = Layout::eItemKind::Title; a.fill = true; a.weight = 1; a.isTitle = true;
+    a.id = 1; a.kind = Layout::eItemKind::Title; a.fill = true; a.weight = 1;
     specs.push_back(a);
 
     Layout::SItemSpec b;
-    b.id = 2; b.kind = Layout::eItemKind::Title; b.fill = true; b.weight = 3; b.isTitle = true;
+    b.id = 2; b.kind = Layout::eItemKind::Title; b.fill = true; b.weight = 3;
     specs.push_back(b);
 
     auto R = Layout::compute(M, specs);
@@ -421,7 +423,7 @@ static void testCrossAlign()
     std::vector<Layout::SItemSpec> specs;
 
     Layout::SItemSpec t;
-    t.id = 0; t.kind = Layout::eItemKind::Title; t.fill = true; t.weight = 1; t.isTitle = true;
+    t.id = 0; t.kind = Layout::eItemKind::Title; t.fill = true; t.weight = 1;
     t.h = 22;
     t.crossAlign = Layout::eAlign::Start;
     t.marginTop  = 6;

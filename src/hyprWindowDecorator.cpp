@@ -491,48 +491,21 @@ CBox CHyprWindowDecorator::titleBox(const CBox &band, const float scale) const
 {
     const auto &C = gPlugin->cfg;
 
+    // "box" mode is an explicit placement: the title is not in the flow at all.
     if (C.titleMode == SConfig::eTitleMode::Box)
         return titleBoxPlaced(band, scale);
 
-    // LOGICAL units throughout, the same space as itemArea() and resolveLayout(). The
-    // box is returned in logical px and the caller scales it once when drawing.
-    //
-    // `gap` is the distance from the neighbouring ELEMENTS and may be negative, which
-    // pulls the title past them; that is how a title is tucked under a decorative icon.
-    (void)scale;
+    // Fill mode: the title is a flow ITEM, so its rectangle comes from the layout pass.
+    // Recomputing it here is what allowed the title to disagree with its neighbours.
+    (void)band;
+    auto &SELF = const_cast<CHyprWindowDecorator &>(*this);
 
-    double leftEdge  = 0;
-    double rightEdge = band.width;
+    const auto RESOLVED = SELF.resolveLayout();
+    if (RESOLVED.titleIndex < 0 || RESOLVED.titleVoids)
+        return {0, 0, 0, 0};
 
-    for (const auto &el : gPlugin->m_vElements)
-    {
-        if (!el.tex || el.tex->m_texID == 0 || el.cfg.region != SElement::eRegion::Top)
-            continue;
-
-        // naturalSize is in art px; the element scale is the only factor, exactly as
-        // layout.hpp computes it. Applying the monitor scale here is what put the title
-        // in the wrong place on a 2x output.
-        const double S  = (double)el.cfg.scale.value_or(1);
-        const double W  = el.cfg.width > 0 ? el.cfg.width : el.naturalSize.x * S;
-        const double OX = el.cfg.offsetX;
-
-        if (el.cfg.anchor == SElement::eAnchor::TopLeft)
-            leftEdge = std::max(leftEdge, OX + W + C.titleGap);
-        else if (el.cfg.anchor == SElement::eAnchor::TopRight)
-            rightEdge = std::min(rightEdge, band.width - W + OX - C.titleGap);
-    }
-
-    // No room between the neighbours means an empty box, so nothing is drawn: a
-    // zero-width box used to still render text that spilled over them.
-    const auto R = TitleBox::layoutFill(band.x, band.y, band.width, band.height, leftEdge, rightEdge);
-
-    // Height: the band by default, or an explicit `height` placed by cross_align +
-    // margin. Vertical placement is NOT a gap: see layoutFill's comment.
-    const double WANTED_H = C.titleHeight > 0 ? C.titleHeight : band.height;
-    const auto   CROSS    = TitleBox::layoutCross(band.y, band.height, WANTED_H, (TitleBox::eCross)(C.titleCrossAlign == "start" ? 0 : C.titleCrossAlign == "end" ? 2 : 1),
-                                        C.titleMarginTop, C.titleMarginBottom);
-
-    return {R.x, CROSS.y, R.w, CROSS.h};
+    const auto &R = RESOLVED.items[RESOLVED.titleIndex].rect;
+    return {R.x, R.y, R.w, R.h};
 }
 
 // "box" mode: the same idea as SElement. The anchor picks a corner/edge of the band,
@@ -669,6 +642,29 @@ Layout::SResult CHyprWindowDecorator::resolveLayout()
         }
     }
 
+    // The title participates in the top region's flow like any other item, which is
+    // what makes `title.gap` unnecessary: its spacing is `margin` now. Its id is one
+    // past the last element, so it cannot collide with an element index.
+    const auto &C = gPlugin->cfg;
+    if (C.titleEnabled && C.titleMode == SConfig::eTitleMode::Fill)
+    {
+        Layout::SItemSpec t;
+        t.id          = (int)gPlugin->m_vElements.size();
+        t.kind        = Layout::eItemKind::Title;
+        t.fill        = true;
+        t.weight      = 1;
+        t.h           = C.titleHeight; // -1 or 0 = the full band height
+        t.marginLeft  = C.titleMarginLeft;
+        t.marginRight = C.titleMarginRight;
+        t.marginTop   = C.titleMarginTop;
+        t.marginBottom = C.titleMarginBottom;
+        t.crossAlign  = C.titleCrossAlign == "start" ? Layout::eAlign::Start : C.titleCrossAlign == "end" ? Layout::eAlign::End : Layout::eAlign::Centre;
+
+        // Appended last so the end-aligned buttons keep their positions: the title takes
+        // the space between the start and end groups, as it did before.
+        top.push_back(t);
+    }
+
     return Layout::compute(M, top, bottom, left, right);
 }
 
@@ -681,6 +677,10 @@ int CHyprWindowDecorator::elementIndexAt(const Vector2D &local)
 
     for (const auto &item : RESOLVED.items)
     {
+        // The title is an item, but it is not hit-testable: it has no action.
+        if (item.kind == Layout::eItemKind::Title)
+            continue;
+
         if (item.id < 0 || (size_t)item.id >= gPlugin->m_vElements.size())
             continue;
 
@@ -1254,6 +1254,11 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
 
         for (const auto &item : RESOLVED.items)
         {
+            // The title is an item for LAYOUT purposes only; its pixels are the text and
+            // optional backdrop drawn by renderBarTitle/renderPass, not a texture here.
+            if (item.kind == Layout::eItemKind::Title)
+                continue;
+
             if (item.id < 0 || (size_t)item.id >= gPlugin->m_vElements.size())
                 continue;
 
