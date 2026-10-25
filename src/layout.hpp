@@ -326,6 +326,11 @@ inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vect
         double       extent      = isFiller ? (HASEXPLICIT ? EXPLICIT : (totalWeight > 0 ? std::max(0.0, FREE * s.weight / totalWeight - SELF_MARGIN) : 0.0))
                                             : EXPLICIT;
 
+        // A filler's share already had BOTH margins subtracted from its SIZE. The trailing
+        // margin must therefore also be consumed by the cursor, and the leading one moves
+        // the box; together they keep the far edge pinned instead of letting it drift.
+        const double FILL_TRAIL = isFiller ? (HORIZONTAL ? s.marginRight : s.marginBottom) : 0.0;
+
         if (isFiller && extent <= 0)
             continue;
 
@@ -373,7 +378,7 @@ inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vect
                 cursorStart += m.gap;
             cursorStart += LEAD;
             mainPos = cursorStart;
-            cursorStart += extent + TRAIL;
+            cursorStart += extent + TRAIL + FILL_TRAIL;
             STARTPLACED++;
         }
 
