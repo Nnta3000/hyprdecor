@@ -313,10 +313,25 @@ inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vect
     }
 }
 
-inline SResult compute(const SFrameMetrics &m, const std::vector<SItemSpec> &top)
+// One spec list per region. Regions are independent: a row flows left to right, a column
+// flows top to bottom, and neither is affected by the other except through the reserved
+// space the frame metrics already account for.
+inline SResult compute(const SFrameMetrics &m, const std::vector<SItemSpec> &top, const std::vector<SItemSpec> &bottom = {},
+                       const std::vector<SItemSpec> &left = {}, const std::vector<SItemSpec> &right = {})
 {
     SResult result;
-    layoutRegion(m, eRegion::Top, top, result.items, result.titleVoids);
+
+    for (const auto &[REGION, SPECS] : {std::pair{eRegion::Top, &top}, std::pair{eRegion::Bottom, &bottom}, std::pair{eRegion::Left, &left},
+                                       std::pair{eRegion::Right, &right}})
+    {
+        bool voided = false;
+        layoutRegion(m, REGION, *SPECS, result.items, voided);
+
+        // Any region's title that cannot fit voids; there is only ever one title today.
+        if (voided)
+            result.titleVoids = true;
+    }
+
     return result;
 }
 

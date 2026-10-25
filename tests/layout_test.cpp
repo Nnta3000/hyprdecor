@@ -304,8 +304,67 @@ static void testTitleUnits()
     CHECK(std::abs(DEVICE_BAND / M - 433) < 0.0001, "device -> logical round trip is exact");
 }
 
+// Left/right regions are columns: they flow vertically between the top and bottom
+// regions, and their width is the reserved left/right space.
+static void testColumns()
+{
+    header("layout: left and right are columns between the top and bottom regions");
+
+    auto M = orangeFrame();
+    M.boxW = 467;
+    M.boxH = 245;
+
+    // Left band: x 0..26, y 30..221 (between top 30 and bottom 24).
+    const auto L = Layout::regionRect(M, Layout::eRegion::Left);
+    CHECK_RECT(L, 0, 30, 26, 245 - 30 - 24, "left region runs between top and bottom");
+
+    const auto R = Layout::regionRect(M, Layout::eRegion::Right);
+    CHECK_RECT(R, 467 - 14, 30, 14, 191, "right region starts at the far edge");
+
+    const auto B = Layout::regionRect(M, Layout::eRegion::Bottom);
+    CHECK_RECT(B, 0, 245 - 24, 467, 24, "bottom region spans the full width");
+
+    // Two buttons stacked in the left column.
+    std::vector<Layout::SItemSpec> left;
+    left.push_back(imageItem(0, 13, 14, Layout::eAlign::Start, 0));
+    left.push_back(imageItem(1, 13, 14, Layout::eAlign::Start, 0));
+
+    auto RES = Layout::compute(M, {}, {}, left, {});
+
+    CHECK(RES.items.size() == 2, "both column items are laid out");
+    CHECK(RES.items[0].region == Layout::eRegion::Left, "first item belongs to the left region");
+    // Main axis is Y: first at the top of the band, second below it.
+    CHECK(RES.items[0].rect.y < RES.items[1].rect.y, "column items stack downwards");
+    // The item area is inset by the frame's content padding + bar.padding, the same as
+    // the top band: 30 (region top) + 25 (content) + 7 (padding) = 62.
+    CHECK(RES.items[0].rect.y == 62, "first column item starts below the content inset, got %.0f", RES.items[0].rect.y);
+    CHECK(RES.items[1].rect.y == 62 + 14, "second follows the first, got %.0f", RES.items[1].rect.y);
+}
+
+// Reserved space comes from the frame, so an inset on one side must move only that side.
+static void testAsymmetricReserve()
+{
+    header("layout: regions follow asymmetric reserved extents");
+
+    auto M = orangeFrame();
+    M.insetLeft = 24;
+    M.insetBottom = 38;
+
+    const auto L = Layout::regionRect(M, Layout::eRegion::Left);
+    CHECK(std::abs(L.w - (26 + 24)) < 0.0001, "left region grows by its inset, got %.1f", L.w);
+
+    const auto B = Layout::regionRect(M, Layout::eRegion::Bottom);
+    CHECK(std::abs(B.h - (24 + 38)) < 0.0001, "bottom region grows by its inset, got %.1f", B.h);
+
+    // A column must not overlap the grown bottom region.
+    const auto R = Layout::regionRect(M, Layout::eRegion::Right);
+    CHECK(std::abs(R.h - (245 - 30 - (24 + 38))) < 0.0001, "columns stop above the grown bottom, got %.1f", R.h);
+}
+
 int main()
 {
+    testColumns();
+    testAsymmetricReserve();
     testNegativeGap();
     testTitleUnits();
     testJson();
