@@ -1407,6 +1407,10 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
             const auto GRID = NinePatch::layout(gPlugin->m_titleBgNPI, gPlugin->m_titleBgSize.x, gPlugin->m_titleBgSize.y,
                                                 TITLEBOX.width, TITLEBOX.height, BS);
 
+            // Same rule as the frame and the elements: the unfocused art is shown exactly
+            // when frame_inactive is, i.e. the window does not have focus.
+            const auto &BGTEX = m_bWindowHasFocus ? gPlugin->m_pTitleBgTex : gPlugin->m_pTitleBgTexUnfocused;
+
             Render::GL::CHyprOpenGLImpl::STextureRenderData bgData;
             bgData.a = a;
 
@@ -1425,7 +1429,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                     cell.primarySurfaceUVTopLeft         = Vector2D(GRID.sx[gi] / gPlugin->m_titleBgSize.x, GRID.sy[gj] / gPlugin->m_titleBgSize.y);
                     cell.primarySurfaceUVBottomRight     = Vector2D(GRID.sx[gi + 1] / gPlugin->m_titleBgSize.x, GRID.sy[gj + 1] / gPlugin->m_titleBgSize.y);
 
-                    Render::GL::g_pHyprOpenGL->renderTexture(gPlugin->m_pTitleBgTex, CBox{TITLEBOX.x + GRID.dx[gi], TITLEBOX.y + GRID.dy[gj], DW, DH}, cell);
+                    Render::GL::g_pHyprOpenGL->renderTexture(BGTEX, CBox{TITLEBOX.x + GRID.dx[gi], TITLEBOX.y + GRID.dy[gj], DW, DH}, cell);
                 }
         }
 

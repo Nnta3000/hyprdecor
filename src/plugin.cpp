@@ -8,6 +8,19 @@
 #include <cstring>
 #include <cerrno>
 
+std::string CPlugin::statePath(const std::string &base, const char *suffix) const
+{
+    // The suffix goes BEFORE the extension: "close.png" -> "close_hovered.png". Suffixing
+    // the raw path would look for "close.png_hovered", which never matches.
+    std::string stem = base;
+    const auto  DOT  = stem.find_last_of('.');
+    const auto  SLASH = stem.find_last_of('/');
+    if (DOT != std::string::npos && (SLASH == std::string::npos || DOT > SLASH))
+        stem.erase(DOT);
+
+    return gPlugin->resolveTexturePath(stem, {suffix}, base);
+}
+
 std::string CPlugin::resolveTexturePath(const std::string &base, const std::vector<std::string> &suffixes, const std::string &fallback)
 {
     for (const auto &suffix : suffixes)
@@ -192,16 +205,8 @@ void CPlugin::loadAllTextures()
             // error, it simply shares the active texture.
             element.active = {element.tex, element.npi};
 
-            // The suffix goes BEFORE the extension: "close.png" -> "close_hovered.png".
-            // Suffixing the raw path would look for "close.png_hovered".
-            std::string stateBase = element.cfg.path;
-            const auto  DOT       = stateBase.find_last_of('.');
-            const auto  SLASH     = stateBase.find_last_of('/');
-            if (DOT != std::string::npos && (SLASH == std::string::npos || DOT > SLASH))
-                stateBase.erase(DOT);
-
             const auto LOADSTATE = [&](SElementTexture &slot, const char *suffix) {
-                const std::string VARIANT = resolveTexturePath(stateBase, {suffix}, element.cfg.path);
+                const std::string VARIANT = statePath(element.cfg.path, suffix);
                 if (VARIANT == element.cfg.path)
                 {
                     // No variant on disk: reuse the active one, geometry included.
@@ -252,11 +257,14 @@ void CPlugin::loadAllTextures()
         }
     }
 
-    // Title backdrop, loaded when its path changes.
+    // Title backdrop, loaded when its path changes. It has an active _unfocused pair,
+    // like the frame: the swap follows window focus, not the pointer, so it needs no
+    // hover/pressed states.
     if (cfg.titleBgEnabled && !cfg.titleBgPath.empty() && m_szLoadedTitleBg != cfg.titleBgPath)
     {
-        m_pTitleBgTex = makeShared<Render::GL::CGLTexture>();
-        m_titleBgNPI  = SNinePatchInfo{};
+        m_pTitleBgTex          = makeShared<Render::GL::CGLTexture>();
+        m_pTitleBgTexUnfocused = makeShared<Render::GL::CGLTexture>();
+        m_titleBgNPI           = SNinePatchInfo{};
 
         cairo_surface_t *surface = loadSurface(cfg.titleBgPath, &m_titleBgNPI, 0);
         if (surface)
@@ -265,6 +273,25 @@ void CPlugin::loadAllTextures()
             m_titleBgSize = m_pTitleBgTex->m_size;
             cairo_surface_destroy(surface);
         }
+
+        // The variant must keep the active geometry, so it is a swap of pixels only.
+        // Loaded through the same marker path, because a nine-patch variant must share
+        // the base's border; a missing file falls back to the active texture.
+        const std::string VARIANT = statePath(cfg.titleBgPath, "_unfocused");
+        if (VARIANT != cfg.titleBgPath)
+        {
+            SNinePatchInfo variantNPI;
+            cairo_surface_t *vs = loadSurface(VARIANT, &variantNPI, 0);
+            if (vs)
+            {
+                uploadCairoSurface(m_pTitleBgTexUnfocused, vs, cfg.linearFiltering);
+                cairo_surface_destroy(vs);
+            }
+        }
+
+        if (m_pTitleBgTexUnfocused->m_texID == 0)
+            m_pTitleBgTexUnfocused = m_pTitleBgTex;
+
         m_szLoadedTitleBg = cfg.titleBgPath;
     }
 

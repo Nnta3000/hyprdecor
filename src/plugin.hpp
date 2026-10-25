@@ -86,6 +86,11 @@ public:
     // First existing file for `base` + one of `suffixes`; empty when none match.
     std::string resolveTexturePath(const std::string &base, const std::vector<std::string> &suffixes, const std::string &fallback = "");
 
+    // "close.png" + "_hovered" -> the path of close_hovered.png, or `base` when that file
+    // does not exist. The suffix goes BEFORE the extension: suffixing the raw path would
+    // look for "close.png_hovered", which is why element variants silently fell back.
+    std::string statePath(const std::string &base, const char *suffix) const;
+
     // The whole configuration, filled by hl.plugin.hyprdecor.setup().
     SConfig cfg;
 
@@ -158,7 +163,10 @@ public:
     std::vector<SElementTex> m_vElements;
 
     // Title backdrop: a nine-patch stretched to the title box, drawn behind the text.
+    // The backdrop has the same active/unfocused pair as the frame: `_unfocused` is
+    // shown whenever frame_inactive is, i.e. the window is not focused.
     SP<Render::ITexture> m_pTitleBgTex = makeShared<Render::GL::CGLTexture>();
+    SP<Render::ITexture> m_pTitleBgTexUnfocused = makeShared<Render::GL::CGLTexture>();
     SNinePatchInfo       m_titleBgNPI;
     Vector2D             m_titleBgSize = {0, 0};
     std::string          m_szLoadedTitleBg;
