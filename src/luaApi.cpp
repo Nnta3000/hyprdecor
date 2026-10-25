@@ -181,6 +181,60 @@ static bool readThickness(lua_State *L, int borderIdx, SFrameThickness &out)
     return readThicknessNamed(L, borderIdx, "thickness", out);
 }
 
+// Reads { left, top, right, bottom } where anything, negatives included, is meaningful.
+// A separate reader because readThicknessNamed uses -1 as the "unset" sentinel, which
+// would make a legitimate -1 gap indistinguishable from an absent one. Thickness must
+// stay non-negative, so it keeps the strict reader.
+struct SSignedSides
+{
+    std::optional<double> left, top, right, bottom;
+};
+
+static bool readSignedSides(lua_State *L, int borderIdx, const char *key, SSignedSides &out)
+{
+    lua_getfield(L, borderIdx, key);
+    const int TYPE = lua_type(L, -1);
+
+    if (TYPE == LUA_TNUMBER)
+    {
+        const double V = lua_tonumber(L, -1);
+        lua_pop(L, 1);
+        out = {V, V, V, V};
+        return true;
+    }
+
+    if (TYPE == LUA_TTABLE)
+    {
+        const int IDX = lua_absindex(L, -1);
+        const auto SIDE = [&](const char *name) -> std::optional<double> {
+            lua_getfield(L, IDX, name);
+            if (lua_isnil(L, -1))
+            {
+                lua_pop(L, 1);
+                return std::nullopt;
+            }
+            if (!lua_isnumber(L, -1))
+            {
+                lua_pop(L, 1);
+                return std::nullopt;
+            }
+            const double V = lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            return V;
+        };
+
+        out.left   = SIDE("left");
+        out.top    = SIDE("top");
+        out.right  = SIDE("right");
+        out.bottom = SIDE("bottom");
+        lua_pop(L, 1);
+        return out.left || out.top || out.right || out.bottom;
+    }
+
+    lua_pop(L, 1);
+    return false;
+}
+
 // hl.plugin.hyprdecor.setup({ defaults = { border = {...}, title = {...} } })
 //
 // Every documented field is validated. Anything malformed is a hard error: setup()
@@ -372,20 +426,23 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
         if (hasField(L, TITLE, "inset"))
             NEXT.titleInset = numberField(L, TITLE, "inset", 0);
         // `gap` accepts a number (all four) or { left, top, right, bottom }.
+        // `gap` accepts a number (all four) or { left, top, right, bottom }. Negative is
+        // allowed: it pulls the box TOWARDS and past its neighbours, which is how a title
+        // is tucked under a decorative icon.
         if (hasField(L, TITLE, "gap"))
         {
-            SFrameThickness GAPS;
-            if (!readThicknessNamed(L, TITLE, "gap", GAPS))
+            SSignedSides GAPS;
+            if (!readSignedSides(L, TITLE, "gap", GAPS))
                 return raise(L, "hyprdecor.setup: 'defaults.title.gap' must be a number or a table {{ left, top, right, bottom }}");
 
-            if (GAPS.left >= 0)
-                NEXT.titleGapLeft = GAPS.left;
-            if (GAPS.top >= 0)
-                NEXT.titleGapTop = GAPS.top;
-            if (GAPS.right >= 0)
-                NEXT.titleGapRight = GAPS.right;
-            if (GAPS.bottom >= 0)
-                NEXT.titleGapBottom = GAPS.bottom;
+            if (GAPS.left)
+                NEXT.titleGapLeft = *GAPS.left;
+            if (GAPS.top)
+                NEXT.titleGapTop = *GAPS.top;
+            if (GAPS.right)
+                NEXT.titleGapRight = *GAPS.right;
+            if (GAPS.bottom)
+                NEXT.titleGapBottom = *GAPS.bottom;
         }
         if (hasField(L, TITLE, "text_offset_x"))
             NEXT.textOffsetX = numberField(L, TITLE, "text_offset_x", 0);

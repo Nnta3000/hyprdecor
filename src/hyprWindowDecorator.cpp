@@ -494,8 +494,13 @@ CBox CHyprWindowDecorator::titleBox(const CBox &band, const float scale) const
     if (C.titleMode == SConfig::eTitleMode::Box)
         return titleBoxPlaced(band, scale);
 
-    // Widest extent reached by elements anchored left / right, in band-local px. Only
-    // the elements push the box: `gap` is the distance between the two.
+    // LOGICAL units throughout, the same space as itemArea() and resolveLayout(). The
+    // box is returned in logical px and the caller scales it once when drawing.
+    //
+    // `gap` is the distance from the neighbouring ELEMENTS and may be negative, which
+    // pulls the title past them; that is how a title is tucked under a decorative icon.
+    (void)scale;
+
     double leftEdge  = 0;
     double rightEdge = band.width;
 
@@ -504,19 +509,22 @@ CBox CHyprWindowDecorator::titleBox(const CBox &band, const float scale) const
         if (!el.tex || el.tex->m_texID == 0)
             continue;
 
-        const double W  = el.cfg.width > 0 ? el.cfg.width * scale : el.naturalSize.x * el.cfg.scale.value_or(1) * scale;
-        const double OX = el.cfg.offsetX * scale;
+        // naturalSize is in art px; the element scale is the only factor, exactly as
+        // layout.hpp computes it. Applying the monitor scale here is what put the title
+        // in the wrong place on a 2x output.
+        const double S  = (double)el.cfg.scale.value_or(1);
+        const double W  = el.cfg.width > 0 ? el.cfg.width : el.naturalSize.x * S;
+        const double OX = el.cfg.offsetX;
 
         if (el.cfg.anchor == SElement::eAnchor::TopLeft)
-            leftEdge = std::max(leftEdge, OX + W + C.titleGapLeft * scale);
+            leftEdge = std::max(leftEdge, OX + W + C.titleGapLeft);
         else if (el.cfg.anchor == SElement::eAnchor::TopRight)
-            rightEdge = std::min(rightEdge, band.width - W + OX - C.titleGapRight * scale);
+            rightEdge = std::min(rightEdge, band.width - W + OX - C.titleGapRight);
     }
 
     // No room between the neighbours means an empty box, so nothing is drawn: a
     // zero-width box used to still render text that spilled over them.
-    const auto R = TitleBox::layoutFill(band.x, band.y, band.width, band.height, leftEdge, rightEdge, C.titleGapTop * scale,
-                                        C.titleGapBottom * scale);
+    const auto R = TitleBox::layoutFill(band.x, band.y, band.width, band.height, leftEdge, rightEdge, C.titleGapTop, C.titleGapBottom);
     return {R.x, R.y, R.w, R.h};
 }
 
@@ -531,7 +539,9 @@ CBox CHyprWindowDecorator::titleBoxPlaced(const CBox &band, const float scale) c
     const bool HASART = C.titleBgEnabled && gPlugin->m_pTitleBgTex && gPlugin->m_pTitleBgTex->m_texID != 0 && gPlugin->m_titleBgNPI.defined;
     const auto &NPI   = gPlugin->m_titleBgNPI;
 
-    const double BS = (double)std::max(1, gPlugin->cfg.artScale) * scale;
+    // LOGICAL units, like fill mode. artScale converts source px to logical; the monitor
+    // scale is NOT involved here, the caller applies it once when drawing.
+    const double BS = (double)std::max(1, gPlugin->cfg.artScale);
 
     double w = -1, h = -1;
     if (HASART)
@@ -544,9 +554,9 @@ CBox CHyprWindowDecorator::titleBoxPlaced(const CBox &band, const float scale) c
     else
     {
         if (C.titleWidth >= 0)
-            w = C.titleWidth * scale;
+            w = C.titleWidth;
         if (C.titleHeight >= 0)
-            h = C.titleHeight * scale;
+            h = C.titleHeight;
     }
 
     // A box with no explicit size still needs to be drawable: fall back to the band.
@@ -556,8 +566,9 @@ CBox CHyprWindowDecorator::titleBoxPlaced(const CBox &band, const float scale) c
         h = band.height;
 
     // 2. Position from the anchor.
-    const auto R = TitleBox::layoutPlaced(band.x, band.y, band.width, band.height, w, h, (TitleBox::eAnchor)C.titleAnchor,
-                                          C.titleOffsetX * scale, C.titleOffsetY * scale);
+    (void)scale;
+    const auto R = TitleBox::layoutPlaced(band.x, band.y, band.width, band.height, w, h, (TitleBox::eAnchor)C.titleAnchor, C.titleOffsetX,
+                                          C.titleOffsetY);
 
     return {R.x, R.y, R.w, R.h};
 }
@@ -743,7 +754,14 @@ void CHyprWindowDecorator::renderBarTitle(const CBox &band, const float scale)
 
     // The text lives in the box the layout computed, so a background drawn for the same
     // box lines up by construction.
-    const CBox TITLEBOX = titleBox(band, scale);
+    //
+    // titleBox() is LOGICAL; the canvas is device pixels, so this is the one place the
+    // monitor scale is applied. The band comes in device-scaled (topBarBox), so recover
+    // the logical band by dividing it out.
+    const double M       = scale > 0 ? scale : 1.0;
+    const CBox   LOGBAND = {band.x / M, band.y / M, band.width / M, band.height / M};
+    const CBox   LOGBOX  = titleBox(LOGBAND, scale);
+    const CBox   TITLEBOX{LOGBOX.x * M, LOGBOX.y * M, LOGBOX.w * M, LOGBOX.h * M};
 
     // No room to draw anything: leave the texture empty rather than rendering text that
     // would spill outside the box.
@@ -825,8 +843,8 @@ void CHyprWindowDecorator::renderBarTitle(const CBox &band, const float scale)
         align = 0.5f;
 
     // Alignment, then the padding, then the text's own nudge.
-    const int xOffset = (int)std::round(INSET + (maxWidth - (float)layoutWidth / PANGO_SCALE) * align + gPlugin->cfg.textOffsetX * scale);
-    const int yOffset = (int)std::round((logicalHeight / 2.0 - layoutHeight / PANGO_SCALE / 2.0) + gPlugin->cfg.textOffsetY * scale);
+    const int xOffset = (int)std::round(INSET + (maxWidth - (float)layoutWidth / PANGO_SCALE) * align + gPlugin->cfg.textOffsetX * M);
+    const int yOffset = (int)std::round((logicalHeight / 2.0 - layoutHeight / PANGO_SCALE / 2.0) + gPlugin->cfg.textOffsetY * M);
 
     cairo_move_to(CAIRO, xOffset, yOffset);
     pango_cairo_show_layout(CAIRO, layout);
@@ -1283,36 +1301,23 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
         Render::GL::g_pHyprOpenGL->renderRect(CBox{B.x + B.w - THICK, B.y + THICK, THICK, B.h - 2 * THICK}, outlineColor, RECTDATA);
     }
 
-    const auto P = gPlugin->decoration_padding;
-    CBox topBarBox;
-    if (gPlugin->decoration_title_placement == "top")
-    {
-        topBarBox = {titleBarBox.x + (int)std::round((gPlugin->decoration_offset_left + NPI.padding[0] + P) * pMonitor->m_scale),
-                     titleBarBox.y,
-                     (double)std::round(titleBarBox.width - (gPlugin->decoration_offset_left + gPlugin->decoration_offset_right + NPI.padding[0] + NPI.padding[2] + 2 * P) * pMonitor->m_scale),
-                     (double)std::round((gPlugin->decoration_offset_top + NPI.padding[1] + P) * pMonitor->m_scale)};
-    }
-    else if (gPlugin->decoration_title_placement == "bottom")
-    {
-        topBarBox = {titleBarBox.x + (int)std::round((gPlugin->decoration_offset_left + NPI.padding[0] + P) * pMonitor->m_scale),
-                     titleBarBox.y + (int)std::round(titleBarBox.height - (gPlugin->decoration_offset_bottom + NPI.padding[3] + P) * pMonitor->m_scale),
-                     (double)std::round(titleBarBox.width - (gPlugin->decoration_offset_left + gPlugin->decoration_offset_right + NPI.padding[0] + NPI.padding[2] + 2 * P) * pMonitor->m_scale),
-                     (double)std::round((gPlugin->decoration_offset_bottom + NPI.padding[3] + P) * pMonitor->m_scale)};
-    }
-    else if (gPlugin->decoration_title_placement == "left")
-    {
-        topBarBox = {titleBarBox.x,
-                     titleBarBox.y + (int)std::round((gPlugin->decoration_offset_top + NPI.padding[1] + P) * pMonitor->m_scale),
-                     (double)std::round((gPlugin->decoration_offset_left + NPI.padding[0] + P) * pMonitor->m_scale),
-                     (double)std::round(titleBarBox.height - (gPlugin->decoration_offset_top + gPlugin->decoration_offset_bottom + NPI.padding[1] + NPI.padding[3] + 2 * P) * pMonitor->m_scale)};
-    }
-    else if (gPlugin->decoration_title_placement == "right")
-    {
-        topBarBox = {titleBarBox.x + (int)std::round(titleBarBox.width - (gPlugin->decoration_offset_right + NPI.padding[2] + P) * pMonitor->m_scale),
-                     titleBarBox.y + (int)std::round((gPlugin->decoration_offset_top + NPI.padding[1] + P) * pMonitor->m_scale),
-                     (double)std::round((gPlugin->decoration_offset_right + NPI.padding[2] + P) * pMonitor->m_scale),
-                     (double)std::round(titleBarBox.height - (gPlugin->decoration_offset_top + gPlugin->decoration_offset_bottom + NPI.padding[1] + NPI.padding[3] + 2 * P) * pMonitor->m_scale)};
-    }
+    // The title band comes from the SAME layout pass as the elements, in logical px,
+    // so the title and its neighbours cannot disagree about where the band is. This
+    // replaced a hand-built device-space copy of the same arithmetic.
+    const auto   LOGM       = frameMetrics();
+    const auto   LOGBAND    = Layout::itemArea(LOGM, Layout::eRegion::Top, Layout::regionRect(LOGM, Layout::eRegion::Top));
+    const double TITLEM     = pMonitor->m_scale;
+    const CBox   LOGBOX{LOGBAND.x, LOGBAND.y, LOGBAND.w, LOGBAND.h};
+    const CBox   LOGTITLEBOX = titleBox(LOGBOX, pMonitor->m_scale);
+
+    // The legacy button strip still measures itself in device px; it is retired in
+    // C3/C4, so it gets a device-space view of the same logical area rather than its own
+    // arithmetic.
+    CBox topBarBox{titleBarBox.x + LOGBAND.x * TITLEM, titleBarBox.y + LOGBAND.y * TITLEM, LOGBAND.w * TITLEM, LOGBAND.h * TITLEM};
+
+    // Device space for the title, scaled exactly once.
+    const CBox TITLEBOX{titleBarBox.x + LOGTITLEBOX.x * TITLEM, titleBarBox.y + LOGTITLEBOX.y * TITLEM, LOGTITLEBOX.w * TITLEM,
+                        LOGTITLEBOX.h * TITLEM};
 
     // render app icon
     if (gPlugin->decoration_appicon_enabled)
@@ -1383,7 +1388,6 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     {
         // Background and text share the SAME box, so they cannot drift apart: the
         // backdrop is derived from titleBox(), never positioned independently.
-        const CBox TITLEBOX = titleBox(topBarBox, pMonitor->m_scale);
         const bool HASROOM = TITLEBOX.width >= 1 && TITLEBOX.height >= 1;
 
         if (HASROOM && gPlugin->cfg.titleBgEnabled && gPlugin->m_pTitleBgTex && gPlugin->m_pTitleBgTex->m_texID != 0 && gPlugin->m_titleBgNPI.defined)
