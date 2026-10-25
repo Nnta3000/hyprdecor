@@ -1040,14 +1040,12 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                     if (!element.cfg.stretchVertical)
                         H = (element.npi.border[1] + element.npi.border[3]) * DEV;
 
-                    // Optional cap: never stretch beyond max_stretch source pixels.
-                    if (element.cfg.maxStretch && *element.cfg.maxStretch > 0)
-                    {
-                        const double FIXED = (element.npi.border[0] + element.npi.border[2]) * DEV;
-                        W = std::min(W, FIXED + *element.cfg.maxStretch * DEV);
-                    }
+                    // max_stretch caps the MIDDLE band, in source px, so the corners keep
+                    // their exact pixel size. -1 = no cap, 0 = corners only.
+                    const double CAPW = element.cfg.maxStretch.value_or(-1);
+                    const double CAPH = element.cfg.stretchVertical ? CAPW : 0;
 
-                    const auto GRID = NinePatch::layout(element.npi, SRCW, SRCH, W, H, DEV);
+                    const auto GRID = NinePatch::layout(element.npi, SRCW, SRCH, W, H, DEV, CAPW, CAPH);
 
                     // Draw the 9 cells; for horizontal-only stretch we collapse the
                     // vertical middle band by using the same destination rows.
@@ -1203,14 +1201,12 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
         if (HASROOM && gPlugin->cfg.titleBgEnabled && gPlugin->m_pTitleBgTex && gPlugin->m_pTitleBgTex->m_texID != 0 && gPlugin->m_titleBgNPI.defined)
         {
             const double BS = (double)std::max(1, gPlugin->cfg.artScale) * pMonitor->m_scale;
-            double BW = TITLEBOX.width;
-            if (gPlugin->cfg.titleBgStretchMax > 0 && gPlugin->m_titleBgNPI.border[0] + gPlugin->m_titleBgNPI.border[2] > 0)
-            {
-                const double FIXED = (gPlugin->m_titleBgNPI.border[0] + gPlugin->m_titleBgNPI.border[2]) * BS;
-                BW = std::min(BW, FIXED + gPlugin->cfg.titleBgStretchMax * BS);
-            }
 
-            const auto GRID = NinePatch::layout(gPlugin->m_titleBgNPI, gPlugin->m_titleBgSize.x, gPlugin->m_titleBgSize.y, BW, TITLEBOX.height, BS);
+            // Cap applies to the middle band only; corners keep their pixel size.
+            const double CAPW = gPlugin->cfg.titleBgStretchMax >= 0 ? gPlugin->cfg.titleBgStretchMax : -1;
+
+            const auto GRID = NinePatch::layout(gPlugin->m_titleBgNPI, gPlugin->m_titleBgSize.x, gPlugin->m_titleBgSize.y,
+                                                TITLEBOX.width, TITLEBOX.height, BS, CAPW, 0);
 
             Render::GL::CHyprOpenGLImpl::STextureRenderData bgData;
             bgData.a = a;
