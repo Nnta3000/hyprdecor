@@ -724,6 +724,28 @@ static void testTitleModes()
     CHECK(textAlignFor(eAnchor::BottomRight) == 1.0, "right anchor -> right text");
 }
 
+// Hit-testing must agree with where the art is drawn, at both borders and inside.
+static void testElementHitTest()
+{
+    header("elements: hit-testing matches the drawn box");
+
+    using namespace TitleBox;
+
+    const SRect R{100, 20, 26, 28}; // a 13x14 icon at scale 2
+
+    CHECK(hit(R, 100, 20), "top-left corner is inside");
+    CHECK(hit(R, 125, 47), "last pixel is inside (inclusive lower, exclusive upper)");
+    CHECK(!hit(R, 126, 20), "one pixel right of the box is outside");
+    CHECK(!hit(R, 100, 48), "one pixel below the box is outside");
+    CHECK(!hit(R, 99, 20), "one pixel left of the box is outside");
+    CHECK(hit(R, 113, 34), "centre is inside");
+
+    // A degenerate box is still reachable, so a misconfigured element cannot become
+    // impossible to hover.
+    CHECK(hit({0, 0, 0, 0}, 0, 0), "zero-sized element is still hit at its origin");
+    CHECK(!hit({0, 0, 0, 0}, 1, 0), "but not one pixel away");
+}
+
 int main()
 {
     std::printf("hyprdecor nine-patch tests\n");
@@ -744,6 +766,7 @@ int main()
     testPixelSizeInvariant();
     testMinStretchFloor();
     testTitleModes();
+    testElementHitTest();
 
     std::printf("\n%s (%d failure%s)\n", g_failures ? "FAILED" : "ALL PASSED", g_failures, g_failures == 1 ? "" : "s");
     return g_failures ? 1 : 0;

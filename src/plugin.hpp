@@ -11,11 +11,24 @@
 #include "config.hpp"
 
 // Runtime state for a configured SElement: the loaded texture and its natural size.
+// One of the four visual states an element can be in. Every state keeps the geometry of
+// the ACTIVE texture: a hovered variant replaces pixels, never the element's size or
+// place, so a state swap can never make the layout jump.
+struct SElementTexture
+{
+    SP<Render::ITexture> tex = makeShared<Render::GL::CGLTexture>();
+    SNinePatchInfo       npi;
+};
+
 struct SElementTex
 {
     SElement             cfg;
     SP<Render::ITexture> tex = makeShared<Render::GL::CGLTexture>();
     Vector2D             naturalSize = {0, 0};
+
+    // State variants, resolved from cfg.path by suffix. Unset ones share the active
+    // texture, so drawing never has to test for null.
+    SElementTexture active, unfocused, hovered, pressed;
 
     // What the currently loaded texture was built from, so a settings change forces a
     // reload instead of silently keeping the old pixels.

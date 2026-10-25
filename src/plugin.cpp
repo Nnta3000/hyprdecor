@@ -182,6 +182,61 @@ void CPlugin::loadAllTextures()
                                                       element.cfg.filter ? (*element.cfg.filter ? "linear" : "nearest") : "none"));
             if (element.tex->m_texID != 0)
                 element.naturalSize = element.tex->m_size;
+            else
+            {
+                notifyError(std::format("element[{}]: couldn't load \"{}\"", i, element.cfg.path));
+                continue;
+            }
+
+            // State variants: same base path, different suffix. A missing file is not an
+            // error, it simply shares the active texture.
+            element.active = {element.tex, element.npi};
+
+            // The suffix goes BEFORE the extension: "close.png" -> "close_hovered.png".
+            // Suffixing the raw path would look for "close.png_hovered".
+            std::string stateBase = element.cfg.path;
+            const auto  DOT       = stateBase.find_last_of('.');
+            const auto  SLASH     = stateBase.find_last_of('/');
+            if (DOT != std::string::npos && (SLASH == std::string::npos || DOT > SLASH))
+                stateBase.erase(DOT);
+
+            const auto LOADSTATE = [&](SElementTexture &slot, const char *suffix) {
+                const std::string VARIANT = resolveTexturePath(stateBase, {suffix}, element.cfg.path);
+                if (VARIANT == element.cfg.path)
+                {
+                    // No variant on disk: reuse the active one, geometry included.
+                    slot = element.active;
+                    return;
+                }
+
+                slot.tex = makeShared<Render::GL::CGLTexture>();
+                slot.npi = SNinePatchInfo{};
+
+                cairo_surface_t *surface = loadSurface(VARIANT, &slot.npi, 0);
+                if (!surface)
+                {
+                    notifyError(std::format("element[{}]: \"{}\" exists but couldn't be loaded", i, VARIANT));
+                    slot = element.active;
+                    return;
+                }
+
+                uploadCairoSurface(slot.tex, surface, LINEAR);
+                cairo_surface_destroy(surface);
+            };
+
+            // Non-interactive elements still get the unfocused swap, which is driven by
+            // the window's focus rather than the pointer.
+            LOADSTATE(element.unfocused, "_unfocused");
+            if (element.cfg.interactive)
+            {
+                LOADSTATE(element.hovered, "_hovered");
+                LOADSTATE(element.pressed, "_pressed");
+            }
+            else
+            {
+                element.hovered = element.active;
+                element.pressed = element.active;
+            }
         }
     }
 

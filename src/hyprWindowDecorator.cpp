@@ -230,6 +230,8 @@ void CHyprWindowDecorator::onMouseMove([[maybe_unused]] Vector2D coords)
     if (m_bTouchEv || !validMapped(m_pWindow) || m_touchId != 0)
         return;
 
+    updateElementHover();
+
     if (!gPlugin->m_vButtons.empty())
         damageOnButtonHover();
 
@@ -306,6 +308,16 @@ void CHyprWindowDecorator::handleDownEvent(Event::SCallbackInfo &info, std::opti
     if (PWINDOW->m_isFloating)
         Desktop::windowState()->raise(PWINDOW);
 
+    // An interactive element under the pointer takes the press: show the pressed art
+    // and swallow the click so it never becomes a window drag.
+    m_iPressedElement = elementIndexAt(COORDS);
+    if (m_iPressedElement != -1)
+    {
+        info.cancelled = true;
+        damageEntire();
+        return;
+    }
+
     m_iButtonPressedIdx = indexToButton(COORDS);
     if (m_iButtonPressedIdx != -1)
     {
@@ -348,6 +360,12 @@ void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
     m_bTouchEv = false;
     m_touchId = 0;
 
+    if (m_iPressedElement != -1)
+    {
+        m_iPressedElement = -1;
+        damageEntire();
+    }
+
     if (m_iButtonPressedIdx != -1)
     {
         if (indexToButton(cursorRelativeToBar()) == m_iButtonPressedIdx)
@@ -369,27 +387,8 @@ void CHyprWindowDecorator::handleMovement()
 int CHyprWindowDecorator::indexToButton(Vector2D COORDS)
 {
     const bool VERTICAL = gPlugin->decoration_title_placement == "left" || gPlugin->decoration_title_placement == "right";
-    const auto DECOBOX = assignedBoxGlobal();
-    const auto &NPI = m_bWindowHasFocus ? gPlugin->activeNinepatch : gPlugin->inactiveNinepatch;
-    const auto P = gPlugin->decoration_padding;
 
-    CBox topBarBox;
-    if (gPlugin->decoration_title_placement == "top")
-    {
-        topBarBox = {(double)(gPlugin->decoration_offset_left + NPI.padding[0] + P), 0.0, (double)(DECOBOX.w - (gPlugin->decoration_offset_left + gPlugin->decoration_offset_right + NPI.padding[0] + NPI.padding[2] + 2 * P)), (double)(gPlugin->decoration_offset_top + NPI.padding[1] + P)};
-    }
-    else if (gPlugin->decoration_title_placement == "bottom")
-    {
-        topBarBox = {(double)(gPlugin->decoration_offset_left + NPI.padding[0] + P), (double)(DECOBOX.h - (gPlugin->decoration_offset_bottom + NPI.padding[3] + P)), (double)(DECOBOX.w - (gPlugin->decoration_offset_left + gPlugin->decoration_offset_right + NPI.padding[0] + NPI.padding[2] + 2 * P)), (double)(gPlugin->decoration_offset_bottom + NPI.padding[3] + P)};
-    }
-    else if (gPlugin->decoration_title_placement == "left")
-    {
-        topBarBox = {0.0, (double)(gPlugin->decoration_offset_top + NPI.padding[1] + P), (double)(gPlugin->decoration_offset_left + NPI.padding[0] + P), (double)(DECOBOX.h - (gPlugin->decoration_offset_top + gPlugin->decoration_offset_bottom + NPI.padding[1] + NPI.padding[3] + 2 * P))};
-    }
-    else
-    {
-        topBarBox = {(double)(DECOBOX.w - (gPlugin->decoration_offset_right + NPI.padding[2] + P)), (double)(gPlugin->decoration_offset_top + NPI.padding[1] + P), (double)(gPlugin->decoration_offset_right + NPI.padding[2] + P), (double)(DECOBOX.h - (gPlugin->decoration_offset_top + gPlugin->decoration_offset_bottom + NPI.padding[1] + NPI.padding[3] + 2 * P))};
-    }
+    const CBox topBarBox = bandBox();
 
     if (!VECINRECT(COORDS, topBarBox.x, topBarBox.y, topBarBox.x + topBarBox.w, topBarBox.y + topBarBox.h))
         return -1;
@@ -557,6 +556,126 @@ CBox CHyprWindowDecorator::titleBoxPlaced(const CBox &band, const float scale) c
                                           C.titleOffsetX * scale, C.titleOffsetY * scale);
 
     return {R.x, R.y, R.w, R.h};
+}
+
+CBox CHyprWindowDecorator::bandBox()
+{
+    const auto  DECOBOX = assignedBoxGlobal();
+    const auto &NPI     = m_bWindowHasFocus ? gPlugin->activeNinepatch : gPlugin->inactiveNinepatch;
+    const auto  P       = gPlugin->decoration_padding;
+
+    if (gPlugin->decoration_title_placement == "bottom")
+        return {(double)(gPlugin->decoration_offset_left + NPI.padding[0] + P), (double)(DECOBOX.h - (gPlugin->decoration_offset_bottom + NPI.padding[3] + P)),
+                (double)(DECOBOX.w - (gPlugin->decoration_offset_left + gPlugin->decoration_offset_right + NPI.padding[0] + NPI.padding[2] + 2 * P)),
+                (double)(gPlugin->decoration_offset_bottom + NPI.padding[3] + P)};
+
+    if (gPlugin->decoration_title_placement == "left")
+        return {0.0, (double)(gPlugin->decoration_offset_top + NPI.padding[1] + P), (double)(gPlugin->decoration_offset_left + NPI.padding[0] + P),
+                (double)(DECOBOX.h - (gPlugin->decoration_offset_top + gPlugin->decoration_offset_bottom + NPI.padding[1] + NPI.padding[3] + 2 * P))};
+
+    if (gPlugin->decoration_title_placement == "right")
+        return {(double)(DECOBOX.w - (gPlugin->decoration_offset_right + NPI.padding[2] + P)), (double)(gPlugin->decoration_offset_top + NPI.padding[1] + P),
+                (double)(gPlugin->decoration_offset_right + NPI.padding[2] + P),
+                (double)(DECOBOX.h - (gPlugin->decoration_offset_top + gPlugin->decoration_offset_bottom + NPI.padding[1] + NPI.padding[3] + 2 * P))};
+
+    // "top" (default)
+    return {(double)(gPlugin->decoration_offset_left + NPI.padding[0] + P), 0.0,
+            (double)(DECOBOX.w - (gPlugin->decoration_offset_left + gPlugin->decoration_offset_right + NPI.padding[0] + NPI.padding[2] + 2 * P)),
+            (double)(gPlugin->decoration_offset_top + NPI.padding[1] + P)};
+}
+
+int CHyprWindowDecorator::elementIndexAt(const Vector2D &local)
+{
+    const auto   BAND   = bandBox();
+    const double MONSC  = m_pWindow->m_monitor.lock() ? (double)m_pWindow->m_monitor.lock()->m_scale : 1.0;
+    const double BANDW  = BAND.w;
+
+    for (size_t i = 0; i < gPlugin->m_vElements.size(); ++i)
+    {
+        const auto &ELEMENT = gPlugin->m_vElements[i];
+        if (!ELEMENT.cfg.interactive || ELEMENT.tex->m_texID == 0)
+            continue;
+
+        const auto G = elementBox(ELEMENT, BAND, BANDW, MONSC);
+
+        // Local coordinates are relative to the decoration origin, same space as BAND.
+        if (TitleBox::hit({G.x, G.y, G.w, G.h}, local.x, local.y))
+            return (int)i;
+    }
+
+    return -1;
+}
+
+void CHyprWindowDecorator::updateElementHover()
+{
+    if (!validMapped(m_pWindow))
+        return;
+
+    const int HOVERED = elementIndexAt(cursorRelativeToBar());
+    const int PRESSED = m_iPressedElement;
+
+    if (HOVERED != m_iHoveredElement)
+    {
+        m_iHoveredElement = HOVERED;
+        damageEntire();
+    }
+
+    // Dragging the pointer off a pressed element cancels the press, like a button.
+    if (PRESSED != -1 && HOVERED != PRESSED)
+    {
+        m_iPressedElement = -1;
+        damageEntire();
+    }
+}
+
+CHyprWindowDecorator::SElementGeom CHyprWindowDecorator::elementBox(const SElementTex &element, const CBox &band, const double bandW,
+                                                                     const float monitorScale) const
+{
+    // border.scale applies to BORDER ART ONLY. Elements have their own scale (default
+    // 1) and are otherwise sized by the monitor scale, in logical pixels: a 15px eye is
+    // 15 logical px = 30 device px on a 2x output. Inheriting border.scale made every
+    // element silently 2x.
+    const double DEV = (double)element.cfg.scale.value_or(1) * monitorScale;
+
+    // naturalSize is in SOURCE pixels, so multiply by the element scale and the monitor
+    // scale to reach device pixels.
+    double W = element.cfg.width > 0 ? element.cfg.width * monitorScale : element.naturalSize.x * DEV;
+    double H = element.cfg.height > 0 ? element.cfg.height * monitorScale : element.naturalSize.y * DEV;
+
+    // A nine-patch stretches only along its band, so its height is the fixed art.
+    if (element.cfg.ninepatch && element.npi.defined && !element.cfg.stretchVertical)
+        H = (element.npi.border[1] + element.npi.border[3]) * DEV;
+
+    const double OX = element.cfg.offsetX * monitorScale;
+    const double OY = element.cfg.offsetY * monitorScale;
+
+    double X = band.x;
+    switch (element.cfg.anchor)
+    {
+        case SElement::eAnchor::TopLeft: X = band.x + OX; break;
+        case SElement::eAnchor::TopCentre: X = band.x + (bandW - W) / 2.0 + OX; break;
+        case SElement::eAnchor::TopRight: X = band.x + bandW - W + OX; break;
+    }
+
+    return {X, band.y + OY, W, H, DEV};
+}
+
+// pressed > hovered > unfocused > active. Returned whole so the caller gets the matching
+// nine-patch markers too: a variant may be plain art where the base is a nine-patch.
+const SElementTexture &CHyprWindowDecorator::elementTexture(const size_t index, const bool focus) const
+{
+    const auto &ELEMENT = gPlugin->m_vElements[index];
+
+    if (ELEMENT.cfg.interactive && m_iPressedElement == (int)index)
+        return ELEMENT.pressed;
+
+    if (ELEMENT.cfg.interactive && m_iHoveredElement == (int)index)
+        return ELEMENT.hovered;
+
+    if (!focus)
+        return ELEMENT.unfocused;
+
+    return ELEMENT.active;
 }
 
 void CHyprWindowDecorator::renderBarTitle(const CBox &band, const float scale)
@@ -1026,41 +1145,35 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
 
         if (BANDH > 0 && BANDW > 0)
         {
-            for (const auto &element : gPlugin->m_vElements)
+            for (size_t ei = 0; ei < gPlugin->m_vElements.size(); ++ei)
             {
+                const auto &element = gPlugin->m_vElements[ei];
                 if (!element.tex || element.tex->m_texID == 0)
+                    continue;
+
+                // Which variant to draw: pressed > hovered > unfocused > active. The
+                // GEOMETRY always comes from the active art, so a state swap can never
+                // move or resize the element.
+                const auto &STATE = elementTexture(ei, m_bWindowHasFocus);
+                if (!STATE.tex || STATE.tex->m_texID == 0)
                     continue;
 
                 // border.scale applies to BORDER ART ONLY. Elements have their own
                 // scale (default 1) and are otherwise sized by the monitor scale, in
                 // logical pixels: a 15px eye is 15 logical px = 30 device px on a 2x
                 // output. Inheriting border.scale made every element silently 2x.
-                const int ESCALE = element.cfg.scale.value_or(1);
-                const double S = (double)ESCALE;
+                const auto GEOM = elementBox(element, titleBarBox, BANDW, pMonitor->m_scale);
 
-                // naturalSize is in SOURCE pixels, so multiply by the element scale and
-                // the monitor scale to reach device pixels.
-                const double DEV = S * pMonitor->m_scale;
-
-                double W = element.cfg.width > 0 ? element.cfg.width * pMonitor->m_scale : element.naturalSize.x * DEV;
-                double H = element.cfg.height > 0 ? element.cfg.height * pMonitor->m_scale : element.naturalSize.y * DEV;
-
-                const double OX = element.cfg.offsetX * pMonitor->m_scale;
-                const double OY = element.cfg.offsetY * pMonitor->m_scale;
-
-                double X = titleBarBox.x;
-                switch (element.cfg.anchor)
-                {
-                    case SElement::eAnchor::TopLeft: X = titleBarBox.x + OX; break;
-                    case SElement::eAnchor::TopCentre: X = titleBarBox.x + (BANDW - W) / 2.0 + OX; break;
-                    case SElement::eAnchor::TopRight: X = titleBarBox.x + BANDW - W + OX; break;
-                }
-                const double Y = titleBarBox.y + OY;
+                const double DEV = GEOM.device;
+                const double X   = GEOM.x;
+                const double Y   = GEOM.y;
+                double       W   = GEOM.w;
+                double       H   = GEOM.h;
 
                 Render::GL::CHyprOpenGLImpl::STextureRenderData edata;
                 edata.a = a;
 
-                if (element.cfg.ninepatch && element.npi.defined)
+                if (element.cfg.ninepatch && STATE.npi.defined)
                 {
                     // A nine-segment element: stretch the middle band, keep the ends.
                     // Horizontal by default, so a title background keeps its height.
@@ -1080,7 +1193,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                     const double MAXH = element.cfg.stretchVertical ? MAXW : 0;
                     const double MINH = element.cfg.stretchVertical ? MINW : 0;
 
-                    const auto GRID = NinePatch::layout(element.npi, SRCW, SRCH, W, H, DEV, MAXW, MAXH, MINW, MINH);
+                    const auto GRID = NinePatch::layout(STATE.npi, SRCW, SRCH, W, H, DEV, MAXW, MAXH, MINW, MINH);
 
                     // Draw the 9 cells; for horizontal-only stretch we collapse the
                     // vertical middle band by using the same destination rows.
@@ -1102,11 +1215,11 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                             cellData.primarySurfaceUVTopLeft     = Vector2D(GRID.sx[gi] / SRCW, GRID.sy[gj] / SRCH);
                             cellData.primarySurfaceUVBottomRight = Vector2D(GRID.sx[gi + 1] / SRCW, GRID.sy[gj + 1] / SRCH);
 
-                            Render::GL::g_pHyprOpenGL->renderTexture(element.tex, CBox{X + GRID.dx[gi], Y + GRID.dy[gj], DW, DH}, cellData);
+                            Render::GL::g_pHyprOpenGL->renderTexture(STATE.tex, CBox{X + GRID.dx[gi], Y + GRID.dy[gj], DW, DH}, cellData);
                         }
                 }
                 else
-                    Render::GL::g_pHyprOpenGL->renderTexture(element.tex, CBox{X, Y, W, H}, edata);
+                    Render::GL::g_pHyprOpenGL->renderTexture(STATE.tex, CBox{X, Y, W, H}, edata);
             }
         }
     }
