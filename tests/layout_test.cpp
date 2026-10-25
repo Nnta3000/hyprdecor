@@ -85,7 +85,8 @@ static void testFlow()
 {
     header("layout: flow places start, end and the title between");
 
-    const auto M = orangeFrame();
+    auto M = orangeFrame();
+    M.stackEnd = true; // opt-in; see testEndIndependent for the default
 
     std::vector<Layout::SItemSpec> specs;
     specs.push_back(imageItem(0, 13, 14, Layout::eAlign::Start, 0));  // eye, 13x14
@@ -102,14 +103,12 @@ static void testFlow()
     const auto &EYE = R.items[0];
     CHECK_RECT(EYE.rect, 20, (37 - 14) / 2.0, 13, 14, "first start item");
 
-    // C1 is behaviour-preserving: `end` items are anchored to the end edge
-    // INDEPENDENTLY, exactly as the old elements were, so their own offsets separate
-    // them. C3 turns this into stacking flow.
+    // C3 flow: end items STACK from the end edge, so the last-listed one touches it.
     const auto &MAXI = R.items[1];
-    CHECK_RECT(MAXI.rect, 453 - 13, MAXI.rect.y, 13, 14, "end item touches the end edge");
+    CHECK_RECT(MAXI.rect, 453 - 13 - 13, MAXI.rect.y, 13, 14, "first end item is one width in from the edge");
 
     const auto &CLOSE = R.items[2];
-    CHECK_RECT(CLOSE.rect, 453 - 13, CLOSE.rect.y, 13, 14, "both end items anchor to the same edge");
+    CHECK_RECT(CLOSE.rect, 453 - 13, CLOSE.rect.y, 13, 14, "LAST-listed end item touches the end edge");
 
     const auto &LOGO = R.items[3];
     CHECK_RECT(LOGO.rect, 20 + 13, LOGO.rect.y, 6, 2, "second start item follows the first");
@@ -125,10 +124,13 @@ static void testTitleFills()
     std::vector<Layout::SItemSpec> specs;
     specs.push_back(imageItem(0, 13, 14, Layout::eAlign::Start, 0));
 
+    // The title is a FILLER: that is what "the title is just an item" means.
     Layout::SItemSpec title;
     title.id      = 1;
     title.kind    = Layout::eItemKind::Title;
     title.isTitle = true;
+    title.fill    = true;
+    title.weight  = 1;
     specs.push_back(title);
 
     specs.push_back(imageItem(2, 13, 14, Layout::eAlign::End, 0));
@@ -155,6 +157,8 @@ static void testTitleVoids()
     title.id      = 1;
     title.kind    = Layout::eItemKind::Title;
     title.isTitle = true;
+    title.fill    = true;
+    title.weight  = 1;
     specs.push_back(title);
 
     specs.push_back(imageItem(2, 300, 14, Layout::eAlign::End, 0));
@@ -361,8 +365,102 @@ static void testAsymmetricReserve()
     CHECK(std::abs(R.h - (245 - 30 - (24 + 38))) < 0.0001, "columns stop above the grown bottom, got %.1f", R.h);
 }
 
+// Gaps separate adjacent items without adding one outside the group.
+static void testGap()
+{
+    header("flow: gap sits between items, never outside them");
+
+    auto M = orangeFrame();
+    M.gap  = 4;
+
+    std::vector<Layout::SItemSpec> specs;
+    specs.push_back(imageItem(0, 10, 10, Layout::eAlign::Start, 0));
+    specs.push_back(imageItem(1, 10, 10, Layout::eAlign::Start, 0));
+    specs.push_back(imageItem(2, 10, 10, Layout::eAlign::Start, 0));
+
+    auto R = Layout::compute(M, specs);
+
+    CHECK(R.items[0].rect.x == 20, "first item at the area start, no leading gap: %.0f", R.items[0].rect.x);
+    CHECK(R.items[1].rect.x == 20 + 10 + 4, "second is one width plus one gap along: %.0f", R.items[1].rect.x);
+    CHECK(R.items[2].rect.x == 20 + 2 * (10 + 4), "third continues: %.0f", R.items[2].rect.x);
+}
+
+// Two fillers split the remaining space by weight, never "first wins".
+static void testFillWeights()
+{
+    header("flow: fillers split the leftover space by weight");
+
+    const auto M = orangeFrame();
+
+    std::vector<Layout::SItemSpec> specs;
+    specs.push_back(imageItem(0, 40, 10, Layout::eAlign::Start, 0));
+
+    Layout::SItemSpec a;
+    a.id = 1; a.kind = Layout::eItemKind::Title; a.fill = true; a.weight = 1; a.isTitle = true;
+    specs.push_back(a);
+
+    Layout::SItemSpec b;
+    b.id = 2; b.kind = Layout::eItemKind::Title; b.fill = true; b.weight = 3; b.isTitle = true;
+    specs.push_back(b);
+
+    auto R = Layout::compute(M, specs);
+
+    // Area 433, fixed 40, so 393 is split 1:3 -> 98.25 and 294.75.
+    CHECK(std::abs(R.items[1].rect.w - 393.0 / 4) < 0.001, "weight 1 gets a quarter: %.2f", R.items[1].rect.w);
+    CHECK(std::abs(R.items[2].rect.w - 393.0 * 3 / 4) < 0.001, "weight 3 gets three quarters: %.2f", R.items[2].rect.w);
+    CHECK(std::abs(R.items[1].rect.w + R.items[2].rect.w - 393.0) < 0.001, "the two fillers sum to the leftover");
+}
+
+// cross_align and margin replace the old vertical "gap" for a short title.
+static void testCrossAlign()
+{
+    header("flow: cross_align + margin place a short item in a taller band");
+
+    const auto M = orangeFrame();
+
+    std::vector<Layout::SItemSpec> specs;
+
+    Layout::SItemSpec t;
+    t.id = 0; t.kind = Layout::eItemKind::Title; t.fill = true; t.weight = 1; t.isTitle = true;
+    t.h = 22;
+    t.crossAlign = Layout::eAlign::Start;
+    t.marginTop  = 6;
+    specs.push_back(t);
+
+    auto R = Layout::compute(M, specs);
+
+    // Area starts at y=0 and is 37 tall; margin 6 then the box at the top.
+    CHECK(R.items[0].rect.y == 6, "start + margin.top, got %.0f", R.items[0].rect.y);
+    CHECK(R.items[0].rect.h == 22, "explicit height is honoured, got %.0f", R.items[0].rect.h);
+}
+
+// The DEFAULT must keep the pre-C3 behaviour: each end item anchors to the end edge on
+// its own, separated only by its own offset. Turning stacking on is opt-in because it
+// moves existing buttons.
+static void testEndIndependent()
+{
+    header("flow: end items anchor independently by default");
+
+    auto M = orangeFrame();
+    M.stackEnd = false;
+
+    std::vector<Layout::SItemSpec> specs;
+    specs.push_back(imageItem(0, 13, 14, Layout::eAlign::End, 4));
+    specs.push_back(imageItem(1, 13, 14, Layout::eAlign::End, -30));
+
+    auto R = Layout::compute(M, specs);
+
+    // Area is x=20..453, so an end item at offset 4 sits at 453-13+4 and at -30 at 453-13-30.
+    CHECK_RECT(R.items[0].rect, 453 - 13 + 4, R.items[0].rect.y, 13, 14, "end item with offset +4");
+    CHECK_RECT(R.items[1].rect, 453 - 13 - 30, R.items[1].rect.y, 13, 14, "end item with offset -30");
+}
+
 int main()
 {
+    testEndIndependent();
+    testGap();
+    testFillWeights();
+    testCrossAlign();
     testColumns();
     testAsymmetricReserve();
     testNegativeGap();

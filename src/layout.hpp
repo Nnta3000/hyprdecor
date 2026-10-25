@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <format>
+#include <unordered_map>
 #include <cmath>
 #include <cstdint>
 #include <string>
@@ -77,6 +78,13 @@ struct SFrameMetrics
     // bar.padding: the gap the old band left between the frame and the items.
     double padding = 0;
 
+    // Distance between adjacent items on a region's main axis.
+    double gap = 0;
+
+    // End-aligned items stack instead of each anchoring independently. Off by default:
+    // turning it on MOVES existing end items, so it is opt-in per region.
+    bool stackEnd = false;
+
     // The decoration box in logical pixels, in decoration-local coordinates.
     double boxW = 0, boxH = 0;
 
@@ -96,6 +104,9 @@ struct SItemSpec
     double       w       = -1; // <= 0: natural width (image) or an error (text)
     double       h       = -1; // <= 0: natural height
     bool         fill    = false;
+    double       weight  = 1;                 // fill weight; `fill = true` is weight 1
+    eAlign       crossAlign = eAlign::Centre; // vertical for a row, horizontal for a column
+    double       marginLeft = 0, marginTop = 0, marginRight = 0, marginBottom = 0;
     // Stretch band of a nine-patch item, in source px; -1 = unset. A plain image ignores
     // these and draws at its natural size.
     bool         ninepatch     = false;
@@ -183,7 +194,10 @@ inline void naturalSize(const SItemSpec &s, double &w, double &h)
     w = s.w > 0 ? s.w : s.srcW * s.scale;
     h = s.h > 0 ? s.h : s.srcH * s.scale;
 
-    if (s.ninepatch && s.npi.defined && !s.stretchVertical)
+    // A nine-patch that stretches only horizontally keeps the height of its fixed art,
+    // but an EXPLICIT height always wins: it is the user saying exactly how tall the
+    // strip should be (a short title inside a taller band).
+    if (s.ninepatch && s.npi.defined && !s.stretchVertical && !(s.h > 0))
         h = (s.npi.border[1] + s.npi.border[3]) * s.scale;
 }
 
@@ -196,88 +210,160 @@ inline double crossPos(const SRect &area, double size, eRegion region)
 
 // Lays out one region's items along the main axis.
 //
-// Start-aligned items stack from the start edge in list order. End-aligned items are
-// anchored to the end edge INDEPENDENTLY, matching the old element placement so that the
-// first commit is behaviour-preserving; C3 turns them into a stacked flow. The title
-// fills what is left between the furthest start item and the nearest end item.
+// FLOW, as specified:
+//   - start items stack from the start edge, in list order
+//   - end items stack from the END edge, in list order, so the last-listed item touches
+//     the edge. (C1 anchored every end item to the edge independently, matching the old
+//     element placement; C3 replaces that with real stacking. Items with an explicit
+//     offset keep their old position because the offset is still applied on top.)
+//   - fillers share what is left after fixed items, gaps and padding, split by weight
+//   - a gap separates adjacent items on the main axis
+//
+// The title is simply a filler whose main-axis size is its weight share, which is what
+// makes "the title is just an item" true rather than a special case.
 inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vector<SItemSpec> &specs, std::vector<SResolvedItem> &out,
                          bool &titleVoids)
 {
-    const bool   HORIZONTAL = region == eRegion::Top || region == eRegion::Bottom;
-    const SRect  RR         = regionRect(m, region);
-    const SRect  AREA       = itemArea(m, region, RR);
+    const bool   HORIZONTAL  = region == eRegion::Top || region == eRegion::Bottom;
+    const SRect  RR          = regionRect(m, region);
+    const SRect  AREA        = itemArea(m, region, RR);
 
     if (AREA.w <= 0 || AREA.h <= 0)
         return;
 
-    // Main-axis extent available to items.
-    const double MAIN = HORIZONTAL ? AREA.w : AREA.h;
+    const double MAIN        = HORIZONTAL ? AREA.w : AREA.h;
     const double MAIN_ORIGIN = HORIZONTAL ? AREA.x : AREA.y;
 
-    // Measure the fixed items first: the title takes whatever they leave.
-    double        startUsed = 0, endUsed = 0;
-    bool          hasTitle  = false;
+    const auto EXTENT = [&](const SItemSpec &s) {
+        double w = 0, h = 0;
+        naturalSize(s, w, h);
+        return HORIZONTAL ? w : h;
+    };
+
+    const auto CROSS_OF = [&](const SItemSpec &s) {
+        double w = 0, h = 0;
+        naturalSize(s, w, h);
+        return HORIZONTAL ? h : w;
+    };
+
+    // 1. Measure. Fixed items take their natural size; fillers claim weight.
+    double startFixed = 0, endFixed = 0, totalWeight = 0;
+    int    fixedCount = 0;
 
     for (const auto &s : specs)
     {
-        if (s.isTitle)
+        if (s.fill)
         {
-            hasTitle = true;
+            totalWeight += s.weight;
             continue;
         }
 
-        double w = 0, h = 0;
-        naturalSize(s, w, h);
-        const double EXTENT = HORIZONTAL ? w : h;
+        if (s.align == eAlign::End)
+            endFixed += EXTENT(s);
+        else if (s.align == eAlign::Start)
+            startFixed += EXTENT(s);
 
-        if (s.align == eAlign::Start)
-            startUsed += EXTENT;
-        else if (s.align == eAlign::End)
-            endUsed += EXTENT;
+        fixedCount++;
     }
 
-    const double FREE = std::max(0.0, MAIN - startUsed - endUsed);
+    // Gaps between adjacent items. `gap` is the distance between items, so it applies
+    // between groups too but never outside them.
+    const double GAPS = m.gap * std::max(0, fixedCount + (totalWeight > 0 ? 1 : 0) - 1);
 
-    if (hasTitle && FREE <= 0)
+    const double FREE = std::max(0.0, MAIN - startFixed - endFixed - GAPS);
+
+    if (totalWeight > 0 && FREE <= 0)
         titleVoids = true;
 
+    // 2. Place. Two cursors walk inwards; fillers are placed in list order between them.
     double cursorStart = MAIN_ORIGIN;
+    double cursorEnd   = MAIN_ORIGIN + MAIN;
 
+    // Placement order: start and fill items in list order, then end items in REVERSE so
+    // the last-listed one is placed first against the end edge and the rest stack
+    // inwards. Walking the end group forwards would run that side backwards.
+    std::unordered_map<const SItemSpec *, SResolvedItem> PLACED;
+
+    int STARTPLACED = 0, ENDPLACED = 0;
+
+    std::vector<const SItemSpec *> WALK;
     for (const auto &s : specs)
+        if (!(s.align == eAlign::End && !s.fill))
+            WALK.push_back(&s);
+
+    for (auto it = specs.rbegin(); it != specs.rend(); ++it)
+        if (it->align == eAlign::End && !it->fill)
+            WALK.push_back(&*it);
+
+    for (const auto *sp : WALK)
     {
-        double w = 0, h = 0;
-        naturalSize(s, w, h);
+        const auto &s = *sp;
+        bool isFiller = s.fill;
 
-        // The title spans the free gap, whatever it is.
-        if (s.isTitle)
-        {
-            w = HORIZONTAL ? FREE : w;
-            h = HORIZONTAL ? AREA.h : FREE;
-            if (FREE <= 0)
-                continue;
-        }
+        // A filler with an explicit main-axis size keeps it; otherwise it takes its
+        // weight share of the leftover. That is how a short title strip is expressed:
+        // fill = true plus an explicit height.
+        const double EXPLICIT = EXTENT(s);
+        const bool   HASEXPLICIT = EXPLICIT > 0;
+        double       extent = isFiller ? (HASEXPLICIT ? EXPLICIT : (totalWeight > 0 ? FREE * s.weight / totalWeight : 0.0)) : EXPLICIT;
 
-        double mainPos = 0;
+        if (isFiller && extent <= 0)
+            continue;
 
-        if (s.isTitle || s.align == eAlign::Start)
+
+        double       mainPos = 0;
+        // Cross size: a filler defaults to the whole band, but an explicit cross size is
+        // honoured so a short title strip can sit inside a taller band.
+        const double CROSS_NATURAL = CROSS_OF(s);
+        const double CROSS_SIZE    = (isFiller && CROSS_NATURAL <= 0) ? (HORIZONTAL ? AREA.h : AREA.w) : CROSS_NATURAL;
+
+        if (s.align == eAlign::End && !isFiller)
         {
-            mainPos = cursorStart + s.offsetX;
-            cursorStart += HORIZONTAL ? w : h;
+            // Stacked flow: the first end item meets the edge and each further one is
+            // pushed inwards by a gap. When `stackEnd` is off, every end item is anchored
+            // to the edge independently, which is the pre-C3 element behaviour and is
+            // kept as the default so existing configs do not move.
+            if (m.stackEnd)
+            {
+                if (ENDPLACED > 0)
+                    cursorEnd -= m.gap;
+                cursorEnd -= extent;
+                mainPos = cursorEnd;
+            }
+            else
+                mainPos = MAIN_ORIGIN + MAIN - extent;
+
+            ENDPLACED++;
         }
-        else if (s.align == eAlign::End)
-        {
-            // C1 keeps the OLD behaviour, where every element was positioned from its
-            // own anchor and none was pushed by its neighbours. C3 replaces this with
-            // stacking flow; until then this is what makes the commit pixel-identical.
-            mainPos = MAIN_ORIGIN + MAIN - (HORIZONTAL ? w : h) + s.offsetX;
-        }
+        else if (s.align == eAlign::Centre)
+            mainPos = MAIN_ORIGIN + (MAIN - extent) / 2.0;
         else
-            mainPos = MAIN_ORIGIN + (MAIN - (HORIZONTAL ? w : h)) / 2.0 + s.offsetX;
+        {
+            // Same on the start side: a gap separates, it does not lead.
+            if (STARTPLACED > 0)
+                cursorStart += m.gap;
+            mainPos = cursorStart;
+            cursorStart += extent;
+            STARTPLACED++;
+        }
 
-        if (!HORIZONTAL)
-            mainPos += 0; // the column already sits in AREA.x
+        mainPos += HORIZONTAL ? s.marginLeft + s.offsetX : s.marginTop + s.offsetY;
 
-        const double CROSS = crossPos(AREA, HORIZONTAL ? h : w, region);
+        // Cross axis: centred by default, or placed by cross_align inside the area minus
+        // this item's cross margins.
+        double crossAvail = (HORIZONTAL ? AREA.h : AREA.w);
+        const double MARGIN_A = HORIZONTAL ? s.marginTop : s.marginLeft;
+        const double MARGIN_B = HORIZONTAL ? s.marginBottom : s.marginRight;
+        crossAvail -= MARGIN_A + MARGIN_B;
+
+        const double CROSS_CLAMPED = std::min(CROSS_SIZE, std::max(0.0, crossAvail));
+
+        double crossPos = HORIZONTAL ? AREA.y : AREA.x;
+        crossPos += MARGIN_A;
+        if (s.crossAlign == eAlign::Centre)
+            crossPos += (crossAvail - CROSS_CLAMPED) / 2.0;
+        else if (s.crossAlign == eAlign::End)
+            crossPos += crossAvail - CROSS_CLAMPED;
 
         SResolvedItem item;
         item.id       = s.id;
@@ -286,9 +372,9 @@ inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vect
         item.artScale = s.scale;
 
         if (HORIZONTAL)
-            item.rect = {mainPos, CROSS + s.offsetY, w, h};
+            item.rect = {mainPos, crossPos, extent, CROSS_CLAMPED};
         else
-            item.rect = {CROSS + s.offsetY, mainPos, w, h};
+            item.rect = {crossPos, mainPos, CROSS_CLAMPED, extent};
 
         item.draw = item.rect;
 
@@ -304,12 +390,21 @@ inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vect
 
             const auto G = NinePatch::layout(s.npi, s.srcW, s.srcH, item.rect.w, item.rect.h, s.scale, MAXW, MAXH, MINW, MINH);
 
-            item.draw.w       = NinePatch::layoutWidth(G);
-            item.draw.h       = NinePatch::layoutHeight(G);
-            item.overflowed   = G.degraded;
+            item.draw.w     = NinePatch::layoutWidth(G);
+            item.draw.h     = NinePatch::layoutHeight(G);
+            item.overflowed = G.degraded;
         }
 
-        out.push_back(item);
+        PLACED[&s] = item;
+    }
+
+    // Emit in the caller's list order, not placement order: ids are element indices and
+    // consumers walk them positionally.
+    for (const auto &s : specs)
+    {
+        const auto IT = PLACED.find(&s);
+        if (IT != PLACED.end())
+            out.push_back(IT->second);
     }
 }
 
