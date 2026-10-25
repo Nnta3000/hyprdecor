@@ -93,6 +93,29 @@ private:
   // cannot drift apart.
   CBox titleBox(const CBox &band, const float scale) const;
   CBox titleBoxPlaced(const CBox &band, const float scale) const;
+
+  // Geometry of one element inside the top band, in DEVICE pixels. Shared by drawing
+  // and hit-testing so a hovered element can never be tested where it is not drawn.
+  struct SElementGeom
+  {
+    double x = 0, y = 0, w = 0, h = 0;
+    double device = 1; // source px -> device px for this element
+  };
+  // The title band, in decoration-local pixels. One source for drawing and hit-testing.
+  CBox bandBox();
+
+  // Recomputes m_iHoveredElement / m_iPressedElement from the cursor, damaging only
+  // when the state actually changes.
+  void updateElementHover();
+  int  elementIndexAt(const Vector2D &local);
+
+  SElementGeom elementBox(const SElementTex &element, const CBox &band, const double bandW, const float monitorScale) const;
+
+  // Which texture represents an element right now. `focus` is the window's focus.
+  const SElementTexture &elementTexture(size_t index, const bool focus) const;
+
+  int m_iHoveredElement = -1;
+  int m_iPressedElement = -1;
   void renderText(SP<Render::ITexture> out, const std::string &text, const CHyprColor &color, const Vector2D &bufferSize, const float scale, const int fontSize);
   bool renderBarButtons(const Vector2D &bufferSize, const float scale);
   void renderBarButtonsText(CBox *barBox, const float scale, const float a);

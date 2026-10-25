@@ -536,6 +536,9 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
                     return raise(L, "hyprdecor.setup: 'defaults.elements[{}].stretch' must be \"horizontal\" or \"both\"", i);
             }
 
+            if (hasField(L, ITEM, "interactive"))
+                E.interactive = boolField(L, ITEM, "interactive", false);
+
             if (hasField(L, ITEM, "max_stretch"))
                 E.maxStretch = numberField(L, ITEM, "max_stretch", -1);
             if (hasField(L, ITEM, "min_stretch"))
