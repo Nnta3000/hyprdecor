@@ -621,6 +621,53 @@ static void testPixelSizeInvariant()
     }
 }
 
+// A floor on the middle band: it wins over the available space and the frame overflows;
+// the pixel size is still `scale`.
+static void testMinStretchFloor()
+{
+    header("floor: min_* raises the middle band and overflows instead of collapsing");
+
+    SNinePatchInfo info;
+    info.border[0] = info.border[2] = 3;
+    info.border[1] = info.border[3] = 9;
+    info.defined   = true;
+
+    const double S = 4.0;
+
+    // Space smaller than the floor: the middle is raised to the floor anyway.
+    {
+        const auto L = NinePatch::layout(info, 21, 21, 20, 20, S, -1, -1, 5, 5);
+        CHECK(L.dx[2] - L.dx[1] == 5 * S, "middle must be raised to min*scale, got %.0f", L.dx[2] - L.dx[1]);
+        CHECK(L.dx[1] == 3 * S, "corners unchanged by the floor");
+        CHECK(L.dx[3] > 20, "frame must overflow the destination, got %.0f", L.dx[3]);
+    }
+
+    // Plenty of space: the floor changes nothing.
+    {
+        const auto L = NinePatch::layout(info, 21, 21, 400, 400, S, -1, -1, 5, 5);
+        CHECK(L.dx[3] == 400, "floor must not cap the growth, got %.0f", L.dx[3]);
+    }
+
+    // Floor and cap together: the cap wins when both fit, the floor only fills a gap
+    // that is smaller than it.
+    {
+        const auto L = NinePatch::layout(info, 21, 21, 400, 400, S, 7, 7, 5, 5);
+        CHECK(L.dx[2] - L.dx[1] == 7 * S, "cap must still apply, got %.0f", L.dx[2] - L.dx[1]);
+    }
+    {
+        // Space already consumed by the fixed art: the middle collapses to 0 and the
+        // floor is what keeps the frame visible.
+        const auto L = NinePatch::layout(info, 21, 21, 30, 30, S, 7, 7, 5, 5);
+        CHECK(L.dx[2] - L.dx[1] == 5 * S, "floor applies when there is no room at all, got %.0f", L.dx[2] - L.dx[1]);
+    }
+
+    // min = 0 is the same as unset: a degenerate middle is allowed.
+    {
+        const auto L = NinePatch::layout(info, 21, 21, 6 * S, 18 * S, S, -1, -1, 0, 0);
+        CHECK(L.dx[2] == L.dx[1], "min 0 must not force a middle band");
+    }
+}
+
 int main()
 {
     std::printf("hyprdecor nine-patch tests\n");
@@ -639,6 +686,7 @@ int main()
     testAllNineCellsPainted();
     testTitleFitsOrVoids();
     testPixelSizeInvariant();
+    testMinStretchFloor();
 
     std::printf("\n%s (%d failure%s)\n", g_failures ? "FAILED" : "ALL PASSED", g_failures, g_failures == 1 ? "" : "s");
     return g_failures ? 1 : 0;
