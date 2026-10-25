@@ -579,6 +579,23 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
                     return raise(L, "hyprdecor.setup: 'defaults.elements[{}].anchor' must be top-left, top-centre or top-right (got \"{}\")", i, *ANCHOR);
             }
 
+            if (hasField(L, ITEM, "region"))
+            {
+                const auto REGION = stringField(L, ITEM, "region");
+                if (!REGION)
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].region' must be a string", i);
+                if (*REGION == "top")
+                    E.region = SElement::eRegion::Top;
+                else if (*REGION == "bottom")
+                    E.region = SElement::eRegion::Bottom;
+                else if (*REGION == "left")
+                    E.region = SElement::eRegion::Left;
+                else if (*REGION == "right")
+                    E.region = SElement::eRegion::Right;
+                else
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].region' must be top, bottom, left or right (got \"{}\")", i, *REGION);
+            }
+
             if (hasField(L, ITEM, "filter"))
             {
                 const auto FILTER = stringField(L, ITEM, "filter");
@@ -641,6 +658,10 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
     // Only after everything validated: setup() applies completely or not at all.
     NEXT.applies = gPlugin->cfg.applies + 1;
     gPlugin->cfg = NEXT;
+
+    // Was declared and reported by `status` but never assigned, so status always said
+    // "setup() applied: no" even when the config had clearly taken effect.
+    gPlugin->setup_applied = true;
 
     Log::logger->log(Log::DEBUG, std::format("{}setup(): texture=\"{}\" thickness L{} T{} R{} B{} artScale={} font=\"{}\"",
                                              TAG, gPlugin->cfg.textureBase, gPlugin->cfg.thickness.left, gPlugin->cfg.thickness.top,

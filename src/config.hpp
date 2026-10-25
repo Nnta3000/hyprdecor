@@ -35,6 +35,17 @@ struct SElement
         TopRight,
     };
 
+    // Which side of the frame this element lives in. A row for top/bottom, a column for
+    // left/right. Defaults to top so every existing config keeps working unchanged.
+    enum class eRegion : uint8_t {
+        Top,
+        Bottom,
+        Left,
+        Right,
+    };
+
+    eRegion     region = eRegion::Top;
+
     std::string path;
     eAnchor     anchor  = eAnchor::TopLeft;
     double      offsetX = 0;

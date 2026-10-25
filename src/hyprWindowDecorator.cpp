@@ -506,7 +506,7 @@ CBox CHyprWindowDecorator::titleBox(const CBox &band, const float scale) const
 
     for (const auto &el : gPlugin->m_vElements)
     {
-        if (!el.tex || el.tex->m_texID == 0)
+        if (!el.tex || el.tex->m_texID == 0 || el.cfg.region != SElement::eRegion::Top)
             continue;
 
         // naturalSize is in art px; the element scale is the only factor, exactly as
@@ -641,7 +641,26 @@ std::vector<Layout::SItemSpec> CHyprWindowDecorator::itemSpecs()
 
 Layout::SResult CHyprWindowDecorator::resolveLayout()
 {
-    return Layout::compute(frameMetrics(), itemSpecs());
+    // Elements are routed to their region; the title only sees top-region neighbours,
+    // because that is the band it lives in.
+    const auto M = frameMetrics();
+
+    std::vector<Layout::SItemSpec> top, bottom, left, right;
+    for (auto &spec : itemSpecs())
+    {
+        if ((size_t)spec.id >= gPlugin->m_vElements.size())
+            continue;
+
+        switch (gPlugin->m_vElements[spec.id].cfg.region)
+        {
+            case SElement::eRegion::Bottom: bottom.push_back(spec); break;
+            case SElement::eRegion::Left: left.push_back(spec); break;
+            case SElement::eRegion::Right: right.push_back(spec); break;
+            default: top.push_back(spec); break;
+        }
+    }
+
+    return Layout::compute(M, top, bottom, left, right);
 }
 
 int CHyprWindowDecorator::elementIndexAt(const Vector2D &local)
