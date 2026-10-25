@@ -516,7 +516,7 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
         if (hasField(L, BAR, "precedence_over_border"))
             NEXT.precedenceOverBorder = boolField(L, BAR, "precedence_over_border", false);
         if (hasField(L, BAR, "render_above"))
-            NEXT.renderAbove = boolField(L, BAR, "render_above", false);
+            NEXT.renderAbove = boolField(L, BAR, "render_above", true);
         if (hasField(L, BAR, "on_double_click"))
         {
             const auto CMD = stringField(L, BAR, "on_double_click");
