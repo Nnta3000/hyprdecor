@@ -1546,6 +1546,10 @@ bool CHyprWindowDecorator::isPointOnBar(Vector2D COORDS)
 
 eDecorationLayer CHyprWindowDecorator::getDecorationLayer()
 {
+    // Frame and items are drawn OVER the window by default: under, the client painted
+    // over the frame's inner edge and over any item that overlapped the client area,
+    // which made `inset` look broken. OVER (not OVERLAY) keeps the window's own popups
+    // and menus above the frame.
     return gPlugin->decoration_render_above ? DECORATION_LAYER_OVER : DECORATION_LAYER_UNDER;
 }
 

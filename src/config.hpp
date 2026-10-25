@@ -177,7 +177,11 @@ struct SConfig
     std::string buttonsAlignment     = "right";
     bool        partOfWindow         = true;
     bool        precedenceOverBorder = false;
-    bool        renderAbove          = false;
+    // The frame and its items are drawn OVER the window, never behind it. Under, the
+    // client area painted on top of the frame's inner edge and any item overlapping the
+    // window was hidden by it, which made `inset` look broken. Opting out is still
+    // possible for a decoration that must never cover client pixels.
+    bool        renderAbove          = true;
     std::string onDoubleClick;
 
     // App icon
