@@ -388,7 +388,11 @@ int CHyprWindowDecorator::indexToButton(Vector2D COORDS)
 {
     const bool VERTICAL = gPlugin->decoration_title_placement == "left" || gPlugin->decoration_title_placement == "right";
 
-    const CBox topBarBox = bandBox();
+    // The legacy button strip is the top region's item area. It comes from the same
+    // layout pass as everything else.
+    const auto M     = frameMetrics();
+    const auto AREA  = Layout::itemArea(M, Layout::eRegion::Top, Layout::regionRect(M, Layout::eRegion::Top));
+    const CBox topBarBox = {AREA.x, AREA.y, AREA.w, AREA.h};
 
     if (!VECINRECT(COORDS, topBarBox.x, topBarBox.y, topBarBox.x + topBarBox.w, topBarBox.y + topBarBox.h))
         return -1;
@@ -558,52 +562,88 @@ CBox CHyprWindowDecorator::titleBoxPlaced(const CBox &band, const float scale) c
     return {R.x, R.y, R.w, R.h};
 }
 
-CBox CHyprWindowDecorator::bandBox()
+// Frame metrics, resolved ONCE from the config in logical px. Everything downstream
+// (layout, drawing, hit-testing, status) consumes this, so no unit can be mixed twice.
+Layout::SFrameMetrics CHyprWindowDecorator::frameMetrics()
 {
-    const auto  DECOBOX = assignedBoxGlobal();
-    const auto &NPI     = m_bWindowHasFocus ? gPlugin->activeNinepatch : gPlugin->inactiveNinepatch;
-    const auto  P       = gPlugin->decoration_padding;
+    const auto &NPI = m_bWindowHasFocus ? gPlugin->activeNinepatch : gPlugin->inactiveNinepatch;
+    const auto  BOX = assignedBoxGlobal();
 
-    if (gPlugin->decoration_title_placement == "bottom")
-        return {(double)(gPlugin->decoration_offset_left + NPI.padding[0] + P), (double)(DECOBOX.h - (gPlugin->decoration_offset_bottom + NPI.padding[3] + P)),
-                (double)(DECOBOX.w - (gPlugin->decoration_offset_left + gPlugin->decoration_offset_right + NPI.padding[0] + NPI.padding[2] + 2 * P)),
-                (double)(gPlugin->decoration_offset_bottom + NPI.padding[3] + P)};
-
-    if (gPlugin->decoration_title_placement == "left")
-        return {0.0, (double)(gPlugin->decoration_offset_top + NPI.padding[1] + P), (double)(gPlugin->decoration_offset_left + NPI.padding[0] + P),
-                (double)(DECOBOX.h - (gPlugin->decoration_offset_top + gPlugin->decoration_offset_bottom + NPI.padding[1] + NPI.padding[3] + 2 * P))};
-
-    if (gPlugin->decoration_title_placement == "right")
-        return {(double)(DECOBOX.w - (gPlugin->decoration_offset_right + NPI.padding[2] + P)), (double)(gPlugin->decoration_offset_top + NPI.padding[1] + P),
-                (double)(gPlugin->decoration_offset_right + NPI.padding[2] + P),
-                (double)(DECOBOX.h - (gPlugin->decoration_offset_top + gPlugin->decoration_offset_bottom + NPI.padding[1] + NPI.padding[3] + 2 * P))};
-
-    // "top" (default)
-    return {(double)(gPlugin->decoration_offset_left + NPI.padding[0] + P), 0.0,
-            (double)(DECOBOX.w - (gPlugin->decoration_offset_left + gPlugin->decoration_offset_right + NPI.padding[0] + NPI.padding[2] + 2 * P)),
-            (double)(gPlugin->decoration_offset_top + NPI.padding[1] + P)};
+    Layout::SFrameMetrics m;
+    m.left          = gPlugin->decoration_offset_left;
+    m.top           = gPlugin->decoration_offset_top;
+    m.right         = gPlugin->decoration_offset_right;
+    m.bottom        = gPlugin->decoration_offset_bottom;
+    m.contentLeft   = NPI.padding[0];
+    m.contentTop    = NPI.padding[1];
+    m.contentRight  = NPI.padding[2];
+    m.contentBottom = NPI.padding[3];
+    m.padding       = gPlugin->decoration_padding;
+    m.boxW          = BOX.w;
+    m.boxH          = BOX.h;
+    m.insetLeft     = gPlugin->inset_left;
+    m.insetTop      = gPlugin->inset_top;
+    m.insetRight    = gPlugin->inset_right;
+    m.insetBottom   = gPlugin->inset_bottom;
+    return m;
 }
 
-int CHyprWindowDecorator::elementIndexAt(const Vector2D &local)
+// Maps the configured elements to pure layout specs. Ids are the element indices, so the
+// resolved item id is all the renderer needs to find its texture and config.
+std::vector<Layout::SItemSpec> CHyprWindowDecorator::itemSpecs()
 {
-    // `local` is cursor - assignedBoxGlobal(), i.e. LOGICAL pixels, and bandBox() is
-    // logical too. No monitor scale enters the comparison; scaling the band here is
-    // what made the hover area drift away from the art.
-    const auto   BAND  = bandBox();
-    const double MONSC = m_pWindow->m_monitor.lock() ? (double)m_pWindow->m_monitor.lock()->m_scale : 1.0;
-    const double BANDW = BAND.w;
+    std::vector<Layout::SItemSpec> specs;
+    specs.reserve(gPlugin->m_vElements.size());
 
     for (size_t i = 0; i < gPlugin->m_vElements.size(); ++i)
     {
         const auto &ELEMENT = gPlugin->m_vElements[i];
+
+        Layout::SItemSpec s;
+        s.id              = (int)i;
+        s.kind            = ELEMENT.cfg.interactive ? Layout::eItemKind::Button : Layout::eItemKind::Image;
+        s.align           = ELEMENT.cfg.anchor == SElement::eAnchor::TopRight ? Layout::eAlign::End : Layout::eAlign::Start;
+        s.offsetX         = ELEMENT.cfg.offsetX;
+        s.offsetY         = ELEMENT.cfg.offsetY;
+        s.w               = ELEMENT.cfg.width;
+        s.h               = ELEMENT.cfg.height;
+        s.scale           = (double)ELEMENT.cfg.scale.value_or(1);
+        s.srcW            = ELEMENT.naturalSize.x;
+        s.srcH            = ELEMENT.naturalSize.y;
+        s.ninepatch       = ELEMENT.cfg.ninepatch;
+        s.stretchVertical = ELEMENT.cfg.stretchVertical;
+        s.minStretch      = ELEMENT.cfg.minStretch.value_or(-1);
+        s.maxStretch      = ELEMENT.cfg.maxStretch.value_or(-1);
+        s.npi             = ELEMENT.npi;
+        specs.push_back(s);
+    }
+
+    return specs;
+}
+
+Layout::SResult CHyprWindowDecorator::resolveLayout()
+{
+    return Layout::compute(frameMetrics(), itemSpecs());
+}
+
+int CHyprWindowDecorator::elementIndexAt(const Vector2D &local)
+{
+    // `local` is cursor - assignedBoxGlobal(), i.e. LOGICAL pixels, and the resolved
+    // rectangles are logical too. Both sides now come from resolveLayout(), so the
+    // pointer cannot land somewhere the art is not drawn.
+    const auto RESOLVED = resolveLayout();
+
+    for (const auto &item : RESOLVED.items)
+    {
+        if (item.id < 0 || (size_t)item.id >= gPlugin->m_vElements.size())
+            continue;
+
+        const auto &ELEMENT = gPlugin->m_vElements[item.id];
         if (!ELEMENT.cfg.interactive || ELEMENT.tex->m_texID == 0)
             continue;
 
-        const auto G = elementBox(ELEMENT, BAND, BANDW, MONSC);
-
-        // Local coordinates are relative to the decoration origin, same space as BAND.
-        if (TitleBox::hit({G.x, G.y, G.w, G.h}, local.x, local.y))
-            return (int)i;
+        if (item.rect.contains(local.x, local.y))
+            return item.id;
     }
 
     return -1;
@@ -631,44 +671,54 @@ void CHyprWindowDecorator::updateElementHover()
     }
 }
 
-CHyprWindowDecorator::SElementGeom CHyprWindowDecorator::elementBox(const SElementTex &element, const CBox &band, const double bandW,
-                                                                     const float monitorScale) const
-{
-    // ALL arithmetic here is in LOGICAL pixels, the same space as assignedBoxGlobal()
-    // and the cursor. The renderer scales the result to device pixels exactly once.
-    // Mixing the two was the cause of a hover area that did not match the drawn art:
-    // hit-testing fed a logical band into a function that expected a device one, so
-    // the pointer only landed on the art when the monitor scale was 1.
-    (void)monitorScale;
-
-    // border.scale applies to BORDER ART ONLY. Elements have their own scale (default
-    // 1): a 15px eye is 15 logical px = 30 device px on a 2x output.
-    const double S = (double)element.cfg.scale.value_or(1);
-
-    // naturalSize is in SOURCE pixels, so the element scale is the only factor here.
-    double W = element.cfg.width > 0 ? element.cfg.width : element.naturalSize.x * S;
-    double H = element.cfg.height > 0 ? element.cfg.height : element.naturalSize.y * S;
-
-    // A nine-patch stretches only along its band, so its height is the fixed art.
-    if (element.cfg.ninepatch && element.npi.defined && !element.cfg.stretchVertical)
-        H = (element.npi.border[1] + element.npi.border[3]) * S;
-
-    const double OX = element.cfg.offsetX;
-    const double OY = element.cfg.offsetY;
-
-    double X = band.x;
-    switch (element.cfg.anchor)
-    {
-        case SElement::eAnchor::TopLeft: X = band.x + OX; break;
-        case SElement::eAnchor::TopCentre: X = band.x + (bandW - W) / 2.0 + OX; break;
-        case SElement::eAnchor::TopRight: X = band.x + bandW - W + OX; break;
-    }
-
-    return {X, band.y + OY, W, H, S};
-}
-
 // pressed > hovered > unfocused > active. Returned whole so the caller gets the matching
 // nine-patch markers too: a variant may be plain art where the base is a nine-patch.
+// JSON for `hyprctl hyprdecor status`. Rectangles are the SAME logical, decoration-local
+// values the renderer uses, so a reader can verify hover areas against the art. Global
+// coordinates are decoration origin + rect.
+std::string CHyprWindowDecorator::layoutJson() const
+{
+    const auto PWINDOW = m_pWindow.lock();
+    if (!PWINDOW)
+        return "null";
+
+    // resolveLayout() is non-const only because it reads assignedBoxGlobal(); the result
+    // is a pure function of config and window state.
+    auto &SELF = const_cast<CHyprWindowDecorator &>(*this);
+
+    const auto M        = SELF.frameMetrics();
+    const auto RESOLVED = SELF.resolveLayout();
+    const auto BOX      = SELF.assignedBoxGlobal();
+
+    const auto ESC = [](const std::string &v) {
+        std::string out;
+        for (const char c : v)
+        {
+            if (c == '"' || c == '\\')
+                out += '\\';
+            out += c;
+        }
+        return out;
+    };
+
+    const auto FMT = [](double v) { return std::format("{:.0f}", std::round(v)); };
+
+    std::string out;
+    out += std::format("{{\"address\": \"{}\",", ESC(std::format("0x{:x}", (uintptr_t)PWINDOW.get())));
+    out += std::format(" \"decoration_box\": {{ \"x\": {}, \"y\": {}, \"w\": {}, \"h\": {} }},",
+                       FMT(BOX.x), FMT(BOX.y), FMT(BOX.w), FMT(BOX.h));
+    out += std::format(" \"reserved\": {{ \"left\": {}, \"top\": {}, \"right\": {}, \"bottom\": {} }},",
+                       FMT(M.left), FMT(M.top), FMT(M.right), FMT(M.bottom));
+    out += std::format(" \"frame\": {{ \"state\": \"{}\" }},", m_bWindowHasFocus ? "active" : "inactive");
+
+    // Same emitter as the unit tests, so what status prints is what the tests assert.
+    out += " \"items\": " + Layout::itemsJson(RESOLVED.items, BOX.x, BOX.y);
+
+    out += " }";
+
+    return out;
+}
+
 const SElementTexture &CHyprWindowDecorator::elementTexture(const size_t index, const bool focus) const
 {
     const auto &ELEMENT = gPlugin->m_vElements[index];
@@ -1144,92 +1194,73 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     if (m_bWindowSizeChanged)
         m_bButtonsDirty = true;
 
-    // Positioned images (eye, button backdrop, title background, ...). Drawn inside the
-    // TOP BAND only, so art can never spill over the client area.
+    // Items. ONE layout pass produces the rectangles; hit-testing and
+    // `hyprctl hyprdecor status` read the very same ones.
     {
-        // The element layout is computed in LOGICAL pixels, then scaled once for the
-        // GPU. `titleBarBox` above is already device-scaled, so it cannot be used as the
-        // band origin for that.
-        const auto   LOGBAND = bandBox();
-        const double BANDH   = gPlugin->decoration_offset_top;
-        const double BANDW   = LOGBAND.width;
+        const auto RESOLVED = resolveLayout();
 
-        if (BANDH > 0 && BANDW > 0)
+        for (const auto &item : RESOLVED.items)
         {
-            for (size_t ei = 0; ei < gPlugin->m_vElements.size(); ++ei)
+            if (item.id < 0 || (size_t)item.id >= gPlugin->m_vElements.size())
+                continue;
+
+            const auto &element = gPlugin->m_vElements[item.id];
+            if (!element.tex || element.tex->m_texID == 0)
+                continue;
+
+            // Which variant to draw: pressed > hovered > unfocused > active.
+            const auto &STATE = elementTexture((size_t)item.id, m_bWindowHasFocus);
+            if (!STATE.tex || STATE.tex->m_texID == 0)
+                continue;
+
+            // Logical -> device, applied exactly once. The rects are decoration-local,
+            // so add the decoration's device origin.
+            const double M   = pMonitor->m_scale;
+            const double DEV = item.artScale * M;
+
+            Render::GL::CHyprOpenGLImpl::STextureRenderData edata;
+            edata.a = a;
+
+            if (element.cfg.ninepatch && STATE.npi.defined)
             {
-                const auto &element = gPlugin->m_vElements[ei];
-                if (!element.tex || element.tex->m_texID == 0)
-                    continue;
+                // The grid was already resolved by the layout pass; only the scale to
+                // device pixels remains. Recomputing it here is how the caps started
+                // disagreeing with what was drawn.
+                const double SRCW = element.naturalSize.x;
+                const double SRCH = element.naturalSize.y;
 
-                // Which variant to draw: pressed > hovered > unfocused > active. The
-                // GEOMETRY always comes from the active art, so a state swap can never
-                // move or resize the element.
-                const auto &STATE = elementTexture(ei, m_bWindowHasFocus);
-                if (!STATE.tex || STATE.tex->m_texID == 0)
-                    continue;
+                const auto GRID = NinePatch::layout(STATE.npi, SRCW, SRCH, item.rect.w, item.rect.h, item.artScale,
+                                                    element.cfg.maxStretch.value_or(-1), element.cfg.stretchVertical ? element.cfg.maxStretch.value_or(-1) : 0,
+                                                    element.cfg.minStretch.value_or(-1), element.cfg.stretchVertical ? element.cfg.minStretch.value_or(-1) : 0);
 
-                const auto GEOM = elementBox(element, LOGBAND, BANDW, pMonitor->m_scale);
+                const double X = titleBarBox.x + item.rect.x * M;
+                const double Y = titleBarBox.y + item.rect.y * M;
 
-                // Source px -> device px. Applied ONCE, here, so the drawn art and the
-                // hit-tested box use identical numbers.
-                const double DEV = GEOM.device * pMonitor->m_scale;
-                const double X   = titleBarBox.x + GEOM.x * pMonitor->m_scale;
-                const double Y   = titleBarBox.y + GEOM.y * pMonitor->m_scale;
-                double       W   = GEOM.w * pMonitor->m_scale;
-                double       H   = GEOM.h * pMonitor->m_scale;
+                for (int gi = 0; gi < 3; ++gi)
+                    for (int gj = 0; gj < 3; ++gj)
+                    {
+                        const double SW = GRID.sx[gi + 1] - GRID.sx[gi];
+                        const double SH = GRID.sy[gj + 1] - GRID.sy[gj];
+                        const double DW = GRID.dx[gi + 1] - GRID.dx[gi];
+                        const double DH = GRID.dy[gj + 1] - GRID.dy[gj];
+                        if (SW <= 0 || SH <= 0 || DW <= 0 || DH <= 0)
+                            continue;
 
-                Render::GL::CHyprOpenGLImpl::STextureRenderData edata;
-                edata.a = a;
+                        auto cellData = edata;
+                        cellData.allowCustomUV               = true;
+                        cellData.primarySurfaceUVTopLeft     = Vector2D(GRID.sx[gi] / SRCW, GRID.sy[gj] / SRCH);
+                        cellData.primarySurfaceUVBottomRight = Vector2D(GRID.sx[gi + 1] / SRCW, GRID.sy[gj + 1] / SRCH);
 
-                if (element.cfg.ninepatch && STATE.npi.defined)
-                {
-                    // A nine-segment element: stretch the middle band, keep the ends.
-                    // Horizontal by default, so a title background keeps its height.
-                    const double SRCW = element.naturalSize.x;
-                    const double SRCH = element.naturalSize.y;
-
-                    // Horizontal-only stretch (the default): the element keeps its
-                    // natural height, so its top and bottom bands are drawn unscaled
-                    // and the vertical middle contributes nothing.
-                    if (!element.cfg.stretchVertical)
-                        H = (element.npi.border[1] + element.npi.border[3]) * DEV;
-
-                    // min/max_stretch bound the MIDDLE band, in source px, so the corners
-                    // keep their exact pixel size: -1 = unset, 0 = corners only, N = N px.
-                    const double MAXW = element.cfg.maxStretch.value_or(-1);
-                    const double MINW = element.cfg.minStretch.value_or(-1);
-                    const double MAXH = element.cfg.stretchVertical ? MAXW : 0;
-                    const double MINH = element.cfg.stretchVertical ? MINW : 0;
-
-                    const auto GRID = NinePatch::layout(STATE.npi, SRCW, SRCH, W, H, DEV, MAXW, MAXH, MINW, MINH);
-
-                    // Draw the 9 cells; for horizontal-only stretch we collapse the
-                    // vertical middle band by using the same destination rows.
-                    for (int gi = 0; gi < 3; ++gi)
-                        for (int gj = 0; gj < 3; ++gj)
-                        {
-                            const double SW = GRID.sx[gi + 1] - GRID.sx[gi];
-                            const double SH = GRID.sy[gj + 1] - GRID.sy[gj];
-                            const double DW = GRID.dx[gi + 1] - GRID.dx[gi];
-                            const double DH = GRID.dy[gj + 1] - GRID.dy[gj];
-                            if (SW <= 0 || SH <= 0 || DW <= 0 || DH <= 0)
-                                continue;
-
-                            // Each cell draws a sub-rectangle of the texture into its
-                            // own box: renderTexture maps the whole texture by default,
-                            // so the UVs must be restricted explicitly.
-                            auto cellData = edata;
-                            cellData.allowCustomUV            = true;
-                            cellData.primarySurfaceUVTopLeft     = Vector2D(GRID.sx[gi] / SRCW, GRID.sy[gj] / SRCH);
-                            cellData.primarySurfaceUVBottomRight = Vector2D(GRID.sx[gi + 1] / SRCW, GRID.sy[gj + 1] / SRCH);
-
-                            Render::GL::g_pHyprOpenGL->renderTexture(STATE.tex, CBox{X + GRID.dx[gi], Y + GRID.dy[gj], DW, DH}, cellData);
-                        }
-                }
-                else
-                    Render::GL::g_pHyprOpenGL->renderTexture(STATE.tex, CBox{X, Y, W, H}, edata);
+                        Render::GL::g_pHyprOpenGL->renderTexture(STATE.tex, CBox{X + GRID.dx[gi] * M, Y + GRID.dy[gj] * M, DW * M, DH * M}, cellData);
+                    }
             }
+            else
+            {
+                const CBox DEST{titleBarBox.x + item.rect.x * M, titleBarBox.y + item.rect.y * M, item.rect.w * M, item.rect.h * M};
+                Render::GL::g_pHyprOpenGL->renderTexture(STATE.tex, DEST, edata);
+            }
+
+            (void)DEV;
         }
     }
 

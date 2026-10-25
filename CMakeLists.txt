@@ -44,6 +44,13 @@ if(HYPRDECOR_BUILD_TESTS)
     target_link_libraries(ninepatch_test PRIVATE PkgConfig::cairo_only)
     target_compile_options(ninepatch_test PRIVATE -Wall -Wextra)
 
+    # Tests the resolved-layout pass: one pure function producing the rectangles that
+    # drawing, hit-testing and `hyprctl hyprdecor status` all consume.
+    add_executable(layout_test tests/layout_test.cpp)
+    target_include_directories(layout_test PRIVATE src)
+    target_link_libraries(layout_test PRIVATE PkgConfig::cairo_only)
+    target_compile_options(layout_test PRIVATE -Wall -Wextra)
+
     # Tests the Lua value readers (booleans were being read as numbers and silently
     # ignored). Needs only liblua, which the plugin already links.
     pkg_check_modules(lua_only REQUIRED IMPORTED_TARGET lua5.5)

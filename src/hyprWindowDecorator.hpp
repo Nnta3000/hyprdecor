@@ -13,6 +13,7 @@
 #include <hyprland/src/helpers/time/Time.hpp>
 #include <cairo/cairo.h>
 #include "plugin.hpp"
+#include "layout.hpp"
 
 class CHyprWindowDecorator : public IHyprWindowDecoration
 {
@@ -48,6 +49,11 @@ public:
   void updateRules();
 
   void invalidateTextures();
+
+  // The resolved layout as JSON, for `hyprctl hyprdecor status` and quickshell. This is
+  // the same list the renderer draws from, so it is a truthful description of the screen.
+  std::string layoutJson() const;
+
 
 
 private:
@@ -94,22 +100,17 @@ private:
   CBox titleBox(const CBox &band, const float scale) const;
   CBox titleBoxPlaced(const CBox &band, const float scale) const;
 
-  // Geometry of one element inside the top band, in DEVICE pixels. Shared by drawing
-  // and hit-testing so a hovered element can never be tested where it is not drawn.
-  struct SElementGeom
-  {
-    double x = 0, y = 0, w = 0, h = 0;
-    double device = 1; // source px -> device px for this element
-  };
-  // The title band, in decoration-local pixels. One source for drawing and hit-testing.
-  CBox bandBox();
+  // ONE layout pass. Drawing, hit-testing and `hyprctl hyprdecor status` all read the
+  // list this returns, so the pointer can never land somewhere the art is not drawn.
+  // Computed in LOGICAL pixels, decoration-local; the renderer scales the result once.
+  Layout::SResult                resolveLayout();
+  Layout::SFrameMetrics          frameMetrics();
+  std::vector<Layout::SItemSpec> itemSpecs();
 
   // Recomputes m_iHoveredElement / m_iPressedElement from the cursor, damaging only
   // when the state actually changes.
   void updateElementHover();
   int  elementIndexAt(const Vector2D &local);
-
-  SElementGeom elementBox(const SElementTex &element, const CBox &band, const double bandW, const float monitorScale) const;
 
   // Which texture represents an element right now. `focus` is the window's focus.
   const SElementTexture &elementTexture(size_t index, const bool focus) const;

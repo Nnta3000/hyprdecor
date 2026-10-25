@@ -377,6 +377,28 @@ std::string CPlugin::statusString() const
     out += std::format("  canvas (last):     {}x{}\n", lastBarW, lastBarH);
     out += std::format("  drawn (last):      {}\n", lastDrawn ? "yes" : "no");
 
+    // The resolved layout as JSON: coordinates and sizes of every item, from the same
+    // list the renderer draws, so it can be checked against the screen or consumed by
+    // quickshell. One object per decorated window, joined into an array.
+    out += "\nresolved layout (JSON):\n";
+    out += std::format("{{ \"version\": 1, \"windows\": [");
+
+    bool first = true;
+    for (auto *bar : liveDecorators())
+    {
+        if (!bar)
+            continue;
+        const std::string JSON = bar->layoutJson();
+        if (JSON == "null")
+            continue;
+        if (!first)
+            out += ", ";
+        first = false;
+        out += "\n  " + JSON;
+    }
+
+    out += "\n] }\n";
+
     return out;
 }
 
