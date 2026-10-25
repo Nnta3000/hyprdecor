@@ -36,21 +36,50 @@ struct SRect
     bool drawable() const { return w >= 1 && h >= 1; }
 };
 
-// Fill mode. `leftEdge`/`rightEdge` are the band-local extents already pushed in by the
-// neighbouring elements (x from the left, x from the left for both). Returns an empty
-// rectangle when the neighbours touch or cross, so nothing is drawn.
-inline SRect layoutFill(double bandX, double bandY, [[maybe_unused]] double bandW, double bandH, double leftEdge, double rightEdge,
-                        double gapTop, double gapBottom)
+enum class eCross : uint8_t {
+    Start,
+    Centre,
+    End,
+};
+
+// Fill mode, main axis. `leftEdge`/`rightEdge` are the band-local extents already pushed
+// in by the neighbouring elements. Returns an empty rectangle when they touch or cross,
+// so nothing is drawn.
+//
+// There is deliberately no vertical gap parameter. A gap needs two things to sit
+// BETWEEN, and vertically the box's neighbours are the band's own edges, so "gap.bottom"
+// could only ever mean "resize", while "gap.top" meant "move". Vertical placement of a
+// short box is `height` + `cross_align` + `margin` instead (see layoutCross).
+inline SRect layoutFill(double bandX, double bandY, [[maybe_unused]] double bandW, double bandH, double leftEdge, double rightEdge)
 {
     const double AVAILABLE = rightEdge - leftEdge;
     if (AVAILABLE <= 0)
         return {bandX + leftEdge, bandY, 0, 0};
 
-    const double H = bandH - (gapTop + gapBottom);
-    if (H <= 0)
+    if (bandH <= 0)
         return {bandX, bandY, 0, 0};
 
-    return {bandX + leftEdge, bandY + gapTop, AVAILABLE, H};
+    return {bandX + leftEdge, bandY, AVAILABLE, bandH};
+}
+
+// Cross axis: where a box of height `boxH` sits inside `bandH`, honouring the margins.
+// A box at least as tall as the band is clamped to it, so margins can never push the
+// title outside the band.
+inline SRect layoutCross(double bandY, double bandH, double boxH, eCross cross, double marginTop, double marginBottom)
+{
+    const double AVAILABLE = std::max(0.0, bandH - marginTop - marginBottom);
+    const double H         = std::min(boxH > 0 ? boxH : AVAILABLE, AVAILABLE);
+
+    if (H <= 0)
+        return {0, bandY, 0, 0};
+
+    double y = bandY + marginTop;
+    if (cross == eCross::Centre)
+        y = bandY + marginTop + (AVAILABLE - H) / 2.0;
+    else if (cross == eCross::End)
+        y = bandY + bandH - marginBottom - H;
+
+    return {0, std::round(y), 0, std::round(H)};
 }
 
 // Box mode: anchor picks a corner/edge of the band, `offset` moves from it.

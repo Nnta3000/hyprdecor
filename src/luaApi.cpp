@@ -426,23 +426,46 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
         if (hasField(L, TITLE, "inset"))
             NEXT.titleInset = numberField(L, TITLE, "inset", 0);
         // `gap` accepts a number (all four) or { left, top, right, bottom }.
-        // `gap` accepts a number (all four) or { left, top, right, bottom }. Negative is
-        // allowed: it pulls the box TOWARDS and past its neighbours, which is how a title
-        // is tucked under a decorative icon.
+        // `gap` is ONE signed number: the distance to the neighbours on the main axis.
+        // A table is rejected rather than reinterpreted, because a per-side gap made
+        // `bottom` resize the box while `top` moved it — two different operations behind
+        // one name. Vertical placement is height + cross_align + margin.
         if (hasField(L, TITLE, "gap"))
         {
-            SSignedSides GAPS;
-            if (!readSignedSides(L, TITLE, "gap", GAPS))
-                return raise(L, "hyprdecor.setup: 'defaults.title.gap' must be a number or a table {{ left, top, right, bottom }}");
+            lua_getfield(L, TITLE, "gap");
+            if (!lua_isnumber(L, -1))
+            {
+                lua_pop(L, 1);
+                return raise(L, "hyprdecor.setup: 'defaults.title.gap' must be a number (the distance to the neighbours)");
+            }
+            NEXT.titleGap = lua_tonumber(L, -1);
+            lua_pop(L, 1);
+        }
 
-            if (GAPS.left)
-                NEXT.titleGapLeft = *GAPS.left;
-            if (GAPS.top)
-                NEXT.titleGapTop = *GAPS.top;
-            if (GAPS.right)
-                NEXT.titleGapRight = *GAPS.right;
-            if (GAPS.bottom)
-                NEXT.titleGapBottom = *GAPS.bottom;
+        if (hasField(L, TITLE, "cross_align"))
+        {
+            const auto CA = stringField(L, TITLE, "cross_align");
+            if (!CA)
+                return raise(L, "hyprdecor.setup: 'defaults.title.cross_align' must be a string");
+            if (*CA == "start")
+                NEXT.titleCrossAlign = "start";
+            else if (*CA == "centre" || *CA == "center")
+                NEXT.titleCrossAlign = "centre";
+            else if (*CA == "end")
+                NEXT.titleCrossAlign = "end";
+            else
+                return raise(L, "hyprdecor.setup: 'defaults.title.cross_align' must be start, centre or end (got \"{}\")", *CA);
+        }
+
+        if (hasField(L, TITLE, "margin"))
+        {
+            SSignedSides MARGIN;
+            if (!readSignedSides(L, TITLE, "margin", MARGIN))
+                return raise(L, "hyprdecor.setup: 'defaults.title.margin' must be a number or a table {{ top, bottom }}");
+            if (MARGIN.top)
+                NEXT.titleMarginTop = *MARGIN.top;
+            if (MARGIN.bottom)
+                NEXT.titleMarginBottom = *MARGIN.bottom;
         }
         if (hasField(L, TITLE, "text_offset_x"))
             NEXT.textOffsetX = numberField(L, TITLE, "text_offset_x", 0);

@@ -678,22 +678,39 @@ static void testTitleModes()
 
     // fill: 400 wide band, eye ends at 40, buttons start at 360, gap 2 on both sides.
     {
-        const auto R = layoutFill(0, 0, 400, 48, 40 + 2, 360 - 2, 0, 0);
+        const auto R = layoutFill(0, 0, 400, 48, 40 + 2, 360 - 2);
         CHECK(R.x == 42, "fill must start after the left element + gap, got %.0f", R.x);
         CHECK(R.w == 316, "fill must end before the right element + gap, got %.0f", R.w);
         CHECK(R.h == 48, "fill height must be the band when the gaps are 0");
         CHECK(R.drawable(), "a real span must be drawable");
     }
 
-    // fill: top/bottom gaps inset the box vertically.
+    // fill: the box always fills the band's height. Vertical placement is cross_align +
+    // margin, never a gap, because a gap would need two things to sit between.
     {
-        const auto R = layoutFill(0, 0, 400, 48, 0, 400, 4, 6);
-        CHECK(R.y == 4 && R.h == 38, "vertical gaps must inset the box, got y=%.0f h=%.0f", R.y, R.h);
+        const auto R = layoutFill(0, 0, 400, 48, 0, 400);
+        CHECK(R.y == 0 && R.h == 48, "fill mode must use the full band height, got y=%.0f h=%.0f", R.y, R.h);
+    }
+
+    // cross axis: a short box placed inside a taller band.
+    {
+        const auto C = layoutCross(0, 48, 22, eCross::Start, 6, 0);
+        CHECK(C.y == 6 && C.h == 22, "start + top margin, got y=%.0f h=%.0f", C.y, C.h);
+
+        const auto M = layoutCross(0, 48, 22, eCross::Centre, 0, 0);
+        CHECK(M.y == 13 && M.h == 22, "centre halves the leftover, got y=%.0f", M.y);
+
+        const auto E = layoutCross(0, 48, 22, eCross::End, 0, 4);
+        CHECK(E.y == 22 && E.h == 22, "end honours the bottom margin, got y=%.0f", E.y);
+
+        // A box taller than the band is clamped, so margins can never push it out.
+        const auto BIG = layoutCross(0, 48, 200, eCross::Centre, 0, 0);
+        CHECK(BIG.h == 48 && BIG.y == 0, "oversized box is clamped to the band, got y=%.0f h=%.0f", BIG.y, BIG.h);
     }
 
     // fill: neighbours crossing each other -> nothing drawn.
     {
-        const auto R = layoutFill(0, 0, 400, 48, 300, 200, 0, 0);
+        const auto R = layoutFill(0, 0, 400, 48, 300, 200);
         CHECK(!R.drawable(), "overlapping neighbours must yield an undrawable box");
     }
 
