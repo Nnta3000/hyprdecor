@@ -76,6 +76,14 @@ struct SElement
     //
     // A missing file falls back to the focused texture, so adding states is optional.
     bool   interactive = false; // hit-testable: enables _hovered / _pressed
+
+    // Flow, inside the element's region. `fill` makes the element share the leftover
+    // space by `weight`; `align` places it on the main axis, `crossAlign` across it.
+    bool   fill   = false;
+    double weight = 1;
+    std::string crossAlign = "centre"; // start | centre | end
+    // Space around the element inside the flow.
+    double marginLeft = 0, marginTop = 0, marginRight = 0, marginBottom = 0;
 };
 
 struct SConfig
@@ -144,6 +152,11 @@ struct SConfig
     uint64_t    textColor      = 0xFFFFFFFF;
     // Padding INSIDE the title box, between its edge and the text.
     double      titleInset     = 0;
+    // Distance between adjacent items on a region's main axis.
+    double      regionGap = 0;
+    // End items stack from the end edge instead of anchoring to it independently, so the
+    // last-listed one touches the edge. OPT-IN because it moves existing end items.
+    bool        regionStackEnd = false;
     // fill mode: distance between the title box and its neighbours, on the main axis
     // only. One scalar, because a gap needs two things to sit between; the vertical
     // placement of a short title is `height` + `cross_align` + `margin`, not a gap.

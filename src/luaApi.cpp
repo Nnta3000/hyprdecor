@@ -503,6 +503,10 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             NEXT.blur = boolField(L, BAR, "blur", false);
         if (hasField(L, BAR, "padding"))
             NEXT.padding = (int)numberField(L, BAR, "padding", 7);
+        if (hasField(L, BAR, "gap"))
+            NEXT.regionGap = numberField(L, BAR, "gap", 0);
+        if (hasField(L, BAR, "stack_end"))
+            NEXT.regionStackEnd = boolField(L, BAR, "stack_end", false);
         if (hasField(L, BAR, "button_padding"))
             NEXT.buttonPadding = (int)numberField(L, BAR, "button_padding", 5);
         if (hasField(L, BAR, "buttons_alignment"))
@@ -635,6 +639,51 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
 
             if (hasField(L, ITEM, "interactive"))
                 E.interactive = boolField(L, ITEM, "interactive", false);
+
+            if (hasField(L, ITEM, "fill"))
+            {
+                lua_getfield(L, ITEM, "fill");
+                if (lua_isboolean(L, -1))
+                    E.fill = lua_toboolean(L, -1) != 0;
+                else if (lua_isnumber(L, -1))
+                {
+                    // A number is a weight, per the spec.
+                    E.fill   = true;
+                    E.weight = lua_tonumber(L, -1);
+                }
+                else
+                {
+                    lua_pop(L, 1);
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].fill' must be a boolean or a weight", i);
+                }
+                lua_pop(L, 1);
+            }
+
+            if (hasField(L, ITEM, "cross_align"))
+            {
+                const auto CA = stringField(L, ITEM, "cross_align");
+                if (!CA)
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].cross_align' must be a string", i);
+                if (*CA == "start" || *CA == "centre" || *CA == "center" || *CA == "end")
+                    E.crossAlign = (*CA == "center") ? "centre" : *CA;
+                else
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].cross_align' must be start, centre or end (got \"{}\")", i, *CA);
+            }
+
+            if (hasField(L, ITEM, "margin"))
+            {
+                SSignedSides MG;
+                if (!readSignedSides(L, ITEM, "margin", MG))
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].margin' must be a number or a table", i);
+                if (MG.left)
+                    E.marginLeft = *MG.left;
+                if (MG.top)
+                    E.marginTop = *MG.top;
+                if (MG.right)
+                    E.marginRight = *MG.right;
+                if (MG.bottom)
+                    E.marginBottom = *MG.bottom;
+            }
 
             if (hasField(L, ITEM, "max_stretch"))
                 E.maxStretch = numberField(L, ITEM, "max_stretch", -1);

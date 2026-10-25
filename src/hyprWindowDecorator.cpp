@@ -597,6 +597,8 @@ Layout::SFrameMetrics CHyprWindowDecorator::frameMetrics()
     m.contentRight  = NPI.padding[2];
     m.contentBottom = NPI.padding[3];
     m.padding       = gPlugin->decoration_padding;
+    m.gap           = gPlugin->cfg.regionGap;
+    m.stackEnd      = gPlugin->cfg.regionStackEnd;
     m.boxW          = BOX.w;
     m.boxH          = BOX.h;
     m.insetLeft     = gPlugin->inset_left;
@@ -633,6 +635,13 @@ std::vector<Layout::SItemSpec> CHyprWindowDecorator::itemSpecs()
         s.minStretch      = ELEMENT.cfg.minStretch.value_or(-1);
         s.maxStretch      = ELEMENT.cfg.maxStretch.value_or(-1);
         s.npi             = ELEMENT.npi;
+        s.fill            = ELEMENT.cfg.fill;
+        s.weight          = ELEMENT.cfg.weight;
+        s.crossAlign      = ELEMENT.cfg.crossAlign == "start" ? Layout::eAlign::Start : ELEMENT.cfg.crossAlign == "end" ? Layout::eAlign::End : Layout::eAlign::Centre;
+        s.marginLeft      = ELEMENT.cfg.marginLeft;
+        s.marginTop       = ELEMENT.cfg.marginTop;
+        s.marginRight     = ELEMENT.cfg.marginRight;
+        s.marginBottom    = ELEMENT.cfg.marginBottom;
         specs.push_back(s);
     }
 
