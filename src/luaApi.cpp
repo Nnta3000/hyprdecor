@@ -426,21 +426,12 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
         if (hasField(L, TITLE, "inset"))
             NEXT.titleInset = numberField(L, TITLE, "inset", 0);
         // `gap` accepts a number (all four) or { left, top, right, bottom }.
-        // `gap` is ONE signed number: the distance to the neighbours on the main axis.
-        // A table is rejected rather than reinterpreted, because a per-side gap made
-        // `bottom` resize the box while `top` moved it — two different operations behind
-        // one name. Vertical placement is height + cross_align + margin.
+        // The title has no gap of its own: it is a flow item, spaced by `margin` like
+        // every other item. `gap` is rejected by name so an old config fails loudly
+        // rather than being silently ignored.
         if (hasField(L, TITLE, "gap"))
-        {
-            lua_getfield(L, TITLE, "gap");
-            if (!lua_isnumber(L, -1))
-            {
-                lua_pop(L, 1);
-                return raise(L, "hyprdecor.setup: 'defaults.title.gap' must be a number (the distance to the neighbours)");
-            }
-            NEXT.titleGap = lua_tonumber(L, -1);
-            lua_pop(L, 1);
-        }
+            return raise(L, "hyprdecor.setup: 'defaults.title.gap' was removed; use 'defaults.title.margin' "
+                            "(the title is a flow item now)");
 
         if (hasField(L, TITLE, "cross_align"))
         {

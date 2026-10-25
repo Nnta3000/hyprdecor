@@ -157,16 +157,15 @@ struct SConfig
     // End items stack from the end edge instead of anchoring to it independently, so the
     // last-listed one touches the edge. OPT-IN because it moves existing end items.
     bool        regionStackEnd = false;
-    // fill mode: distance between the title box and its neighbours, on the main axis
-    // only. One scalar, because a gap needs two things to sit between; the vertical
-    // placement of a short title is `height` + `cross_align` + `margin`, not a gap.
-    // Negative pulls the box past its neighbours (tucking it under an icon).
-    double      titleGap       = 0;
+    // The title is a FLOW ITEM (kind == Title) in the top region, so it is spaced by
+    // `margin` like every other item. There is no title-specific gap: `margin` replaces
+    // it, and a negative side tucks the title under a neighbouring icon.
+    double      titleMarginLeft   = 0;
+    double      titleMarginTop    = 0;
+    double      titleMarginRight  = 0;
+    double      titleMarginBottom = 0;
     // Cross-axis placement when the box is shorter than the band.
     std::string titleCrossAlign = "centre"; // start | centre | end
-    // Space around the box inside the flow; only `top`/`bottom` can act on a row.
-    double      titleMarginTop    = 0;
-    double      titleMarginBottom = 0;
     // Moves the TEXT inside its box (and its background), independent of the box.
     double      textOffsetX    = 0;
     double      textOffsetY    = 0;
