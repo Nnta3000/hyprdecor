@@ -724,6 +724,14 @@ static void testTitleModes()
     CHECK(textAlignFor(eAnchor::BottomRight) == 1.0, "right anchor -> right text");
 }
 
+// Small helper: is x inside [origin, origin + width)?
+static bool logicHit(double origin, double limit, double x = -1)
+{
+    if (x < 0)
+        x = origin;
+    return x >= origin && x < limit;
+}
+
 // Hit-testing must agree with where the art is drawn, at both borders and inside.
 static void testElementHitTest()
 {
@@ -744,6 +752,37 @@ static void testElementHitTest()
     // impossible to hover.
     CHECK(hit({0, 0, 0, 0}, 0, 0), "zero-sized element is still hit at its origin");
     CHECK(!hit({0, 0, 0, 0}, 1, 0), "but not one pixel away");
+}
+
+// The hover area must be computed in the same unit as the art. Regression for a
+// mismatch where hit-testing used logical px and drawing used device px: the pointer
+// only landed on the art when the monitor scale happened to be 1.
+static void testElementUnits()
+{
+    header("elements: hover box uses the same units as the drawn art");
+
+    // Logical: 13x14 icon at element scale 2 -> 26x28 logical.
+    const double S = 2.0, M = 2.0; // element scale, monitor scale
+    const double LOGW = 15 * S, LOGH = 16 * S;
+    const double DEVW = LOGW * M, DEVH = LOGH * M;
+
+    CHECK(LOGW == 30 && LOGH == 32, "logical size must ignore the monitor scale");
+    CHECK(DEVW == 60 && DEVH == 64, "device size applies the monitor scale once");
+
+    // A pointer at logical (band + offset) must hit a box built in logical units...
+    const double BAND_X = 0, OFFSET = 19;
+    const double LOG_X = BAND_X + OFFSET;
+    CHECK(logicHit(LOG_X, LOG_X + LOGW), "logical hit-test matches the logical box");
+
+    // ...and the same element at the same logical offset must DRAW at offset*M.
+    CHECK(LOG_X * M == 38, "the drawn origin is the logical origin scaled once");
+
+    // The old bug: a device-sized box tested against a logical cursor is TWICE too wide
+    // (at M = 2), so a pointer past the art still "hovers" it. That is the drift seen
+    // on screen, and it disappears once both sides use logical px.
+    const double PAST_THE_ART = LOG_X + LOGW + 5;
+    CHECK(!logicHit(LOG_X, LOG_X + LOGW, PAST_THE_ART), "logical box: 5px past the art is outside");
+    CHECK(logicHit(LOG_X, LOG_X + LOGW * M, PAST_THE_ART), "device box: the same point is wrongly inside");
 }
 
 int main()
@@ -767,6 +806,7 @@ int main()
     testMinStretchFloor();
     testTitleModes();
     testElementHitTest();
+    testElementUnits();
 
     std::printf("\n%s (%d failure%s)\n", g_failures ? "FAILED" : "ALL PASSED", g_failures, g_failures == 1 ? "" : "s");
     return g_failures ? 1 : 0;

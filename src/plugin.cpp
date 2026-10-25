@@ -212,16 +212,28 @@ void CPlugin::loadAllTextures()
                 slot.tex = makeShared<Render::GL::CGLTexture>();
                 slot.npi = SNinePatchInfo{};
 
-                cairo_surface_t *surface = loadSurface(VARIANT, &slot.npi, 0);
-                if (!surface)
+                // Loaded EXACTLY like the active texture, which is what makes the swap
+                // pixel-for-pixel. Passing a nine-patch info here used to crop a 1px
+                // border off every variant, so a 13x14 icon became 11x12 and the hovered
+                // art appeared cropped and zoomed relative to the idle art.
+                if (element.cfg.ninepatch)
+                {
+                    cairo_surface_t *surface = loadSurface(VARIANT, &slot.npi, 0);
+                    if (surface)
+                    {
+                        uploadCairoSurface(slot.tex, surface, LINEAR);
+                        cairo_surface_destroy(surface);
+                    }
+                }
+                else
+                    loadTexture(VARIANT, slot.tex, LINEAR);
+
+                if (slot.tex->m_texID == 0)
                 {
                     notifyError(std::format("element[{}]: \"{}\" exists but couldn't be loaded", i, VARIANT));
                     slot = element.active;
                     return;
                 }
-
-                uploadCairoSurface(slot.tex, surface, LINEAR);
-                cairo_surface_destroy(surface);
             };
 
             // Non-interactive elements still get the unfocused swap, which is driven by
