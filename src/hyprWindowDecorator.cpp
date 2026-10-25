@@ -517,15 +517,22 @@ CBox CHyprWindowDecorator::titleBox(const CBox &band, const float scale) const
         const double OX = el.cfg.offsetX;
 
         if (el.cfg.anchor == SElement::eAnchor::TopLeft)
-            leftEdge = std::max(leftEdge, OX + W + C.titleGapLeft);
+            leftEdge = std::max(leftEdge, OX + W + C.titleGap);
         else if (el.cfg.anchor == SElement::eAnchor::TopRight)
-            rightEdge = std::min(rightEdge, band.width - W + OX - C.titleGapRight);
+            rightEdge = std::min(rightEdge, band.width - W + OX - C.titleGap);
     }
 
     // No room between the neighbours means an empty box, so nothing is drawn: a
     // zero-width box used to still render text that spilled over them.
-    const auto R = TitleBox::layoutFill(band.x, band.y, band.width, band.height, leftEdge, rightEdge, C.titleGapTop, C.titleGapBottom);
-    return {R.x, R.y, R.w, R.h};
+    const auto R = TitleBox::layoutFill(band.x, band.y, band.width, band.height, leftEdge, rightEdge);
+
+    // Height: the band by default, or an explicit `height` placed by cross_align +
+    // margin. Vertical placement is NOT a gap: see layoutFill's comment.
+    const double WANTED_H = C.titleHeight > 0 ? C.titleHeight : band.height;
+    const auto   CROSS    = TitleBox::layoutCross(band.y, band.height, WANTED_H, (TitleBox::eCross)(C.titleCrossAlign == "start" ? 0 : C.titleCrossAlign == "end" ? 2 : 1),
+                                        C.titleMarginTop, C.titleMarginBottom);
+
+    return {R.x, CROSS.y, R.w, CROSS.h};
 }
 
 // "box" mode: the same idea as SElement. The anchor picks a corner/edge of the band,

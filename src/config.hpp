@@ -133,12 +133,16 @@ struct SConfig
     uint64_t    textColor      = 0xFFFFFFFF;
     // Padding INSIDE the title box, between its edge and the text.
     double      titleInset     = 0;
-    // fill mode: distance between the title box and its neighbours. `top`/`bottom`
-    // inset the box from the band edges. Negative values are rejected.
-    double      titleGapLeft   = 0;
-    double      titleGapRight  = 0;
-    double      titleGapTop    = 0;
-    double      titleGapBottom = 0;
+    // fill mode: distance between the title box and its neighbours, on the main axis
+    // only. One scalar, because a gap needs two things to sit between; the vertical
+    // placement of a short title is `height` + `cross_align` + `margin`, not a gap.
+    // Negative pulls the box past its neighbours (tucking it under an icon).
+    double      titleGap       = 0;
+    // Cross-axis placement when the box is shorter than the band.
+    std::string titleCrossAlign = "centre"; // start | centre | end
+    // Space around the box inside the flow; only `top`/`bottom` can act on a row.
+    double      titleMarginTop    = 0;
+    double      titleMarginBottom = 0;
     // Moves the TEXT inside its box (and its background), independent of the box.
     double      textOffsetX    = 0;
     double      textOffsetY    = 0;
