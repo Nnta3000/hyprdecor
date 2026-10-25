@@ -572,6 +572,55 @@ static void testTitleFitsOrVoids()
     CHECK(drawable(50, 20), "a real box must be drawable");
 }
 
+// The core invariant: a source pixel is ALWAYS `scale` destination pixels. Caps limit
+// the middle band only; they must never resize the corners.
+static void testPixelSizeInvariant()
+{
+    header("invariant: corners are always border * scale; caps only touch the middle");
+
+    SNinePatchInfo info;
+    info.border[0] = info.border[2] = 3;
+    info.border[1] = info.border[3] = 9;
+    info.defined   = true;
+
+    const double S = 4.0;
+
+    // No cap: middle fills the destination.
+    {
+        const auto L = NinePatch::layout(info, 21, 21, 400, 400, S);
+        CHECK(L.dx[1] == 3 * S, "left corner must be %.0f, got %.0f", 3 * S, L.dx[1]);
+        CHECK(L.dx[3] == 400, "no cap should fill the destination, got %.0f", L.dx[3]);
+    }
+
+    // Cap 7 source px on the middle: corners unchanged, total = fixed + 7*S.
+    {
+        const auto L = NinePatch::layout(info, 21, 21, 400, 400, S, 7, 7);
+        const double FIXEDW = (3 + 3) * S;
+        const double FIXEDH = (9 + 9) * S;
+        CHECK(L.dx[1] == 3 * S, "left corner must stay %.0f with a cap, got %.0f", 3 * S, L.dx[1]);
+        CHECK(L.dx[3] == FIXEDW + 7 * S, "total width must be fixed + 7*scale, got %.0f", L.dx[3]);
+        CHECK(L.dy[3] == FIXEDH + 7 * S, "total height must be fixed + 7*scale, got %.0f", L.dy[3]);
+        CHECK(L.dx[2] - L.dx[1] == 7 * S, "middle band must be exactly 7*scale");
+    }
+
+    // Cap 0: corners only, no middle at all.
+    {
+        const auto L = NinePatch::layout(info, 21, 21, 400, 400, S, 0, 0);
+        CHECK(L.dx[1] == 3 * S, "corner unchanged at cap 0");
+        CHECK(L.dx[2] == L.dx[1], "middle width must be zero at cap 0");
+        CHECK(L.dy[2] == L.dy[1], "middle height must be zero at cap 0");
+        CHECK(L.dx[3] == 6 * S, "total width must be corners only, got %.0f", L.dx[3]);
+    }
+
+    // Destination smaller than the fixed art: never rescaled to fit.
+    {
+        const auto L = NinePatch::layout(info, 21, 21, 10, 10, S);
+        CHECK(L.dx[1] == 3 * S, "corner must NOT shrink even when the destination is tiny");
+        CHECK(L.degraded, "overflow must be flagged as degraded (informational only)");
+        CHECK(L.dx[3] >= 6 * S, "frame must overflow rather than downscale, got %.0f", L.dx[3]);
+    }
+}
+
 int main()
 {
     std::printf("hyprdecor nine-patch tests\n");
@@ -589,6 +638,7 @@ int main()
     testInsetFillsReservedBox();
     testAllNineCellsPainted();
     testTitleFitsOrVoids();
+    testPixelSizeInvariant();
 
     std::printf("\n%s (%d failure%s)\n", g_failures ? "FAILED" : "ALL PASSED", g_failures, g_failures == 1 ? "" : "s");
     return g_failures ? 1 : 0;

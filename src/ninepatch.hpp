@@ -122,17 +122,26 @@ namespace NinePatch {
         bool degraded = false;
     };
 
-    // Computes the grid. `border` is L,T,R,B in source pixels; `scale` scales the
-    // fixed corner sizes; dest is the target size in device pixels.
-    // Borders are clamped so the two fixed sides never overlap, which is what made
-    // an oversized middle band collapse into a solid block.
-    inline SLayout layout(const SNinePatchInfo &info, double srcW, double srcH, double destW, double destH, double scale)
+    // Computes the grid.
+    //
+    // INVARIANT: a source pixel is always `scale` destination pixels. The fixed corners
+    // are therefore ALWAYS border * scale and are never resized to fit; only the middle
+    // band varies. `maxMiddleW/H` cap that band, in source pixels:
+    //
+    //   -1 or less : no cap, the middle fills whatever space is available
+    //    0         : no middle at all, only the fixed corners/edges are drawn
+    //    N         : the middle may grow to N * scale, and no further
+    //
+    // `destW/destH` is the space available; the returned grid may be smaller than it
+    // when a cap applies. Callers must draw at the returned size, not at dest.
+    inline SLayout layout(const SNinePatchInfo &info, double srcW, double srcH, double destW, double destH, double scale,
+                          double maxMiddleW = -1, double maxMiddleH = -1)
     {
         SLayout l{};
 
         double bl = info.border[0], bt = info.border[1], br = info.border[2], bb = info.border[3];
 
-        // Never let the fixed borders consume more than the source image.
+        // Markers that exceed the source are the author's error; clamp the source spans.
         if (bl + br > srcW)
         {
             const double T = srcW > 0 ? srcW / (bl + br) : 0;
@@ -156,47 +165,41 @@ namespace NinePatch {
         l.sy[2] = srcH - bb;
         l.sy[3] = srcH;
 
+        // Fixed parts: never resized.
         const double DL = bl * scale, DR = br * scale;
         const double DT = bt * scale, DB = bb * scale;
 
-        // If the fixed corners alone exceed the destination there is no room for a
-        // middle band. Falling back to a 1:1-ish scale keeps the grid ordered, which
-        // is what a naive clamp got wrong: the two fixed sides crossed over and every
-        // cell drew on top of the others, producing a solid block of frame colour.
-        l.degraded = (DL + DR > destW) || (DT + DB > destH);
+        // Middle: the only stretchable part, capped in SOURCE pixels.
+        double middleW = std::max(0.0, destW - DL - DR);
+        double middleH = std::max(0.0, destH - DT - DB);
 
-        if (l.degraded)
-        {
-            // Scale the whole frame uniformly to fit, then split proportionally so the
-            // grid stays monotonic. The result is a slightly squashed frame instead of
-            // overlapping cells.
-            const double FIT = std::min(destW / std::max(1.0, srcW), destH / std::max(1.0, srcH));
+        if (maxMiddleW >= 0)
+            middleW = std::min(middleW, maxMiddleW * scale);
+        if (maxMiddleH >= 0)
+            middleH = std::min(middleH, maxMiddleH * scale);
 
-            l.dx[0] = 0;
-            l.dx[1] = std::clamp(bl * FIT, 0.0, destW);
-            l.dx[2] = std::clamp(destW - br * FIT, l.dx[1], destW);
-            l.dx[3] = destW;
-
-            l.dy[0] = 0;
-            l.dy[1] = std::clamp(bt * FIT, 0.0, destH);
-            l.dy[2] = std::clamp(destH - bb * FIT, l.dy[1], destH);
-            l.dy[3] = destH;
-
-            return l;
-        }
+        // Degraded is now purely informational: the destination is smaller than the
+        // fixed art, so the frame overflows and the caller should clip it. We no longer
+        // rescale, because rescaling would change the pixel size.
+        l.degraded = (destW < DL + DR) || (destH < DT + DB);
 
         l.dx[0] = 0;
         l.dx[1] = DL;
-        l.dx[2] = destW - DR;
-        l.dx[3] = destW;
+        l.dx[2] = DL + middleW;
+        l.dx[3] = DL + middleW + DR;
 
         l.dy[0] = 0;
         l.dy[1] = DT;
-        l.dy[2] = destH - DB;
-        l.dy[3] = destH;
+        l.dy[2] = DT + middleH;
+        l.dy[3] = DT + middleH + DB;
 
         return l;
     }
+
+    // Total size the grid will occupy, which may be smaller than the destination when a
+    // cap applies and larger when the fixed art alone exceeds it.
+    inline double layoutWidth(const SLayout &l) { return l.dx[3]; }
+    inline double layoutHeight(const SLayout &l) { return l.dy[3]; }
 
     // True when the destination is too small for the frame to be drawn faithfully.
     inline bool needsDegradedScale(const SNinePatchInfo &info, double destW, double destH, double scale)
