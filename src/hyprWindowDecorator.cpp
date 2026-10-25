@@ -586,9 +586,12 @@ CBox CHyprWindowDecorator::bandBox()
 
 int CHyprWindowDecorator::elementIndexAt(const Vector2D &local)
 {
-    const auto   BAND   = bandBox();
-    const double MONSC  = m_pWindow->m_monitor.lock() ? (double)m_pWindow->m_monitor.lock()->m_scale : 1.0;
-    const double BANDW  = BAND.w;
+    // `local` is cursor - assignedBoxGlobal(), i.e. LOGICAL pixels, and bandBox() is
+    // logical too. No monitor scale enters the comparison; scaling the band here is
+    // what made the hover area drift away from the art.
+    const auto   BAND  = bandBox();
+    const double MONSC = m_pWindow->m_monitor.lock() ? (double)m_pWindow->m_monitor.lock()->m_scale : 1.0;
+    const double BANDW = BAND.w;
 
     for (size_t i = 0; i < gPlugin->m_vElements.size(); ++i)
     {
@@ -631,23 +634,27 @@ void CHyprWindowDecorator::updateElementHover()
 CHyprWindowDecorator::SElementGeom CHyprWindowDecorator::elementBox(const SElementTex &element, const CBox &band, const double bandW,
                                                                      const float monitorScale) const
 {
-    // border.scale applies to BORDER ART ONLY. Elements have their own scale (default
-    // 1) and are otherwise sized by the monitor scale, in logical pixels: a 15px eye is
-    // 15 logical px = 30 device px on a 2x output. Inheriting border.scale made every
-    // element silently 2x.
-    const double DEV = (double)element.cfg.scale.value_or(1) * monitorScale;
+    // ALL arithmetic here is in LOGICAL pixels, the same space as assignedBoxGlobal()
+    // and the cursor. The renderer scales the result to device pixels exactly once.
+    // Mixing the two was the cause of a hover area that did not match the drawn art:
+    // hit-testing fed a logical band into a function that expected a device one, so
+    // the pointer only landed on the art when the monitor scale was 1.
+    (void)monitorScale;
 
-    // naturalSize is in SOURCE pixels, so multiply by the element scale and the monitor
-    // scale to reach device pixels.
-    double W = element.cfg.width > 0 ? element.cfg.width * monitorScale : element.naturalSize.x * DEV;
-    double H = element.cfg.height > 0 ? element.cfg.height * monitorScale : element.naturalSize.y * DEV;
+    // border.scale applies to BORDER ART ONLY. Elements have their own scale (default
+    // 1): a 15px eye is 15 logical px = 30 device px on a 2x output.
+    const double S = (double)element.cfg.scale.value_or(1);
+
+    // naturalSize is in SOURCE pixels, so the element scale is the only factor here.
+    double W = element.cfg.width > 0 ? element.cfg.width : element.naturalSize.x * S;
+    double H = element.cfg.height > 0 ? element.cfg.height : element.naturalSize.y * S;
 
     // A nine-patch stretches only along its band, so its height is the fixed art.
     if (element.cfg.ninepatch && element.npi.defined && !element.cfg.stretchVertical)
-        H = (element.npi.border[1] + element.npi.border[3]) * DEV;
+        H = (element.npi.border[1] + element.npi.border[3]) * S;
 
-    const double OX = element.cfg.offsetX * monitorScale;
-    const double OY = element.cfg.offsetY * monitorScale;
+    const double OX = element.cfg.offsetX;
+    const double OY = element.cfg.offsetY;
 
     double X = band.x;
     switch (element.cfg.anchor)
@@ -657,7 +664,7 @@ CHyprWindowDecorator::SElementGeom CHyprWindowDecorator::elementBox(const SEleme
         case SElement::eAnchor::TopRight: X = band.x + bandW - W + OX; break;
     }
 
-    return {X, band.y + OY, W, H, DEV};
+    return {X, band.y + OY, W, H, S};
 }
 
 // pressed > hovered > unfocused > active. Returned whole so the caller gets the matching
@@ -1140,8 +1147,12 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     // Positioned images (eye, button backdrop, title background, ...). Drawn inside the
     // TOP BAND only, so art can never spill over the client area.
     {
-        const double BANDH = gPlugin->decoration_offset_top * pMonitor->m_scale;
-        const double BANDW = titleBarBox.width;
+        // The element layout is computed in LOGICAL pixels, then scaled once for the
+        // GPU. `titleBarBox` above is already device-scaled, so it cannot be used as the
+        // band origin for that.
+        const auto   LOGBAND = bandBox();
+        const double BANDH   = gPlugin->decoration_offset_top;
+        const double BANDW   = LOGBAND.width;
 
         if (BANDH > 0 && BANDW > 0)
         {
@@ -1158,17 +1169,15 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                 if (!STATE.tex || STATE.tex->m_texID == 0)
                     continue;
 
-                // border.scale applies to BORDER ART ONLY. Elements have their own
-                // scale (default 1) and are otherwise sized by the monitor scale, in
-                // logical pixels: a 15px eye is 15 logical px = 30 device px on a 2x
-                // output. Inheriting border.scale made every element silently 2x.
-                const auto GEOM = elementBox(element, titleBarBox, BANDW, pMonitor->m_scale);
+                const auto GEOM = elementBox(element, LOGBAND, BANDW, pMonitor->m_scale);
 
-                const double DEV = GEOM.device;
-                const double X   = GEOM.x;
-                const double Y   = GEOM.y;
-                double       W   = GEOM.w;
-                double       H   = GEOM.h;
+                // Source px -> device px. Applied ONCE, here, so the drawn art and the
+                // hit-tested box use identical numbers.
+                const double DEV = GEOM.device * pMonitor->m_scale;
+                const double X   = titleBarBox.x + GEOM.x * pMonitor->m_scale;
+                const double Y   = titleBarBox.y + GEOM.y * pMonitor->m_scale;
+                double       W   = GEOM.w * pMonitor->m_scale;
+                double       H   = GEOM.h * pMonitor->m_scale;
 
                 Render::GL::CHyprOpenGLImpl::STextureRenderData edata;
                 edata.a = a;
