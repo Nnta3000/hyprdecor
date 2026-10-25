@@ -501,21 +501,34 @@ CBox CHyprWindowDecorator::titleBox(const CBox &band, const float scale) const
             rightEdge = std::min(rightEdge, band.width - W + OX - C.titleGapRight * scale);
     }
 
-    double x = band.x + leftEdge + C.titleOffsetX * scale;
-    double w = std::max(0.0, rightEdge - leftEdge);
+    // No room between the neighbours: report an empty box so nothing is drawn. A
+    // zero-width box used to still render the text, which spilled over its neighbours.
+    const double AVAILABLE = rightEdge - leftEdge;
+    if (AVAILABLE <= 0)
+        return {band.x + leftEdge, band.y, 0, 0};
 
-    // Optional cap; the text is then positioned inside the free span by `align`.
+    double w = AVAILABLE;
+
+    // Optional caps; the box is then positioned inside the free span by `align`.
     if (C.titleMaxWidth > 0)
         w = std::min(w, C.titleMaxWidth * scale);
 
+    double h = std::max(0.0, band.height - (C.titleGapTop + C.titleGapBottom) * scale);
+    if (C.titleMaxHeight > 0)
+        h = std::min(h, C.titleMaxHeight * scale);
+
+    if (h <= 0)
+        return {band.x, band.y, 0, 0};
+
+    double x = band.x + leftEdge + C.titleOffsetX * scale;
     if (C.titleAlign == "right")
         x = band.x + rightEdge - w + C.titleOffsetX * scale;
     else if (C.titleAlign == "centre")
-        x = band.x + leftEdge + (rightEdge - leftEdge - w) / 2.0 + C.titleOffsetX * scale;
+        x = band.x + leftEdge + (AVAILABLE - w) / 2.0 + C.titleOffsetX * scale;
 
-    const double y = band.y + C.titleOffsetY * scale;
+    const double y = band.y + C.titleGapTop * scale + C.titleOffsetY * scale;
 
-    return {x, y, w, band.height};
+    return {x, y, w, h};
 }
 
 void CHyprWindowDecorator::renderBarTitle(const CBox &band, const float scale)
@@ -527,6 +540,14 @@ void CHyprWindowDecorator::renderBarTitle(const CBox &band, const float scale)
     // The text lives in the box the layout computed, so a background drawn for the same
     // box lines up by construction.
     const CBox TITLEBOX = titleBox(band, scale);
+
+    // No room to draw anything: leave the texture empty rather than rendering text that
+    // would spill outside the box.
+    if (TITLEBOX.width < 1 || TITLEBOX.height < 1)
+    {
+        m_pTextTex = makeShared<Render::GL::CGLTexture>();
+        return;
+    }
 
     const auto scaledSize = gPlugin->decoration_title_size * scale;
 
@@ -1177,8 +1198,9 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
         // Background and text share the SAME box, so they cannot drift apart: the
         // backdrop is derived from titleBox(), never positioned independently.
         const CBox TITLEBOX = titleBox(topBarBox, pMonitor->m_scale);
+        const bool HASROOM = TITLEBOX.width >= 1 && TITLEBOX.height >= 1;
 
-        if (gPlugin->cfg.titleBgEnabled && gPlugin->m_pTitleBgTex && gPlugin->m_pTitleBgTex->m_texID != 0 && gPlugin->m_titleBgNPI.defined)
+        if (HASROOM && gPlugin->cfg.titleBgEnabled && gPlugin->m_pTitleBgTex && gPlugin->m_pTitleBgTex->m_texID != 0 && gPlugin->m_titleBgNPI.defined)
         {
             const double BS = (double)std::max(1, gPlugin->cfg.artScale) * pMonitor->m_scale;
             double BW = TITLEBOX.width;
@@ -1212,7 +1234,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                 }
         }
 
-        if (m_pTextTex->m_texID)
+        if (HASROOM && m_pTextTex->m_texID)
         {
             // The text texture is exactly the title box, so it is blitted 1:1.
             CBox textBox = {TITLEBOX.x, TITLEBOX.y, (double)m_pTextTex->m_size.x, (double)m_pTextTex->m_size.y};

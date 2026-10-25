@@ -290,12 +290,21 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             NEXT.textColor = (uint64_t)numberField(L, TITLE, "color", 0xFFFFFFFF);
         if (hasField(L, TITLE, "inset"))
             NEXT.titleInset = numberField(L, TITLE, "inset", 0);
-        // `gap` sets both sides; gap_left / gap_right override individually.
+        // `gap` accepts a number (all four) or { left, top, right, bottom }.
         if (hasField(L, TITLE, "gap"))
         {
-            const double G = numberField(L, TITLE, "gap", 0);
-            NEXT.titleGapLeft = G;
-            NEXT.titleGapRight = G;
+            SFrameThickness GAPS;
+            if (!readThicknessNamed(L, TITLE, "gap", GAPS))
+                return raise(L, "hyprdecor.setup: 'defaults.title.gap' must be a number or a table {{ left, top, right, bottom }}");
+
+            if (GAPS.left >= 0)
+                NEXT.titleGapLeft = GAPS.left;
+            if (GAPS.top >= 0)
+                NEXT.titleGapTop = GAPS.top;
+            if (GAPS.right >= 0)
+                NEXT.titleGapRight = GAPS.right;
+            if (GAPS.bottom >= 0)
+                NEXT.titleGapBottom = GAPS.bottom;
         }
         if (hasField(L, TITLE, "gap_left"))
             NEXT.titleGapLeft = numberField(L, TITLE, "gap_left", 0);
@@ -311,6 +320,8 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             NEXT.textOffsetY = numberField(L, TITLE, "text_offset_y", 0);
         if (hasField(L, TITLE, "max_width"))
             NEXT.titleMaxWidth = numberField(L, TITLE, "max_width", -1);
+        if (hasField(L, TITLE, "max_height"))
+            NEXT.titleMaxHeight = numberField(L, TITLE, "max_height", -1);
         if (hasField(L, TITLE, "ellipsize"))
             NEXT.titleEllipsize = boolField(L, TITLE, "ellipsize", true);
 

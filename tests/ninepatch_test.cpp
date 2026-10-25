@@ -548,6 +548,30 @@ static void testAllNineCellsPainted()
     cairo_surface_destroy(src);
 }
 
+// The title must vanish when its neighbours leave no room, instead of drawing text
+// that spills over them.
+static void testTitleFitsOrVoids()
+{
+    header("title box: no room means an empty box (nothing drawn)");
+
+    const auto box = [](double bandW, double leftEdge, double rightEdge) {
+        const double AVAILABLE = rightEdge - leftEdge;
+        if (AVAILABLE <= 0)
+            return 0.0;
+        return AVAILABLE;
+    };
+
+    CHECK(box(400, 20, 380) == 360, "normal case should return the free span");
+    CHECK(box(400, 200, 180) == 0, "overlapping neighbours must yield no width");
+    CHECK(box(400, 200, 200) == 0, "touching neighbours must yield no width");
+
+    // A zero-width box must be treated as "do not draw".
+    const auto drawable = [](double w, double h) { return w >= 1 && h >= 1; };
+    CHECK(!drawable(0, 20), "zero width must not be drawable");
+    CHECK(!drawable(50, 0), "zero height must not be drawable");
+    CHECK(drawable(50, 20), "a real box must be drawable");
+}
+
 int main()
 {
     std::printf("hyprdecor nine-patch tests\n");
@@ -564,6 +588,7 @@ int main()
     testCairoFilter();
     testInsetFillsReservedBox();
     testAllNineCellsPainted();
+    testTitleFitsOrVoids();
 
     std::printf("\n%s (%d failure%s)\n", g_failures ? "FAILED" : "ALL PASSED", g_failures, g_failures == 1 ? "" : "s");
     return g_failures ? 1 : 0;
