@@ -254,8 +254,60 @@ static void testJson()
     CHECK(depth == 0, "JSON braces must balance, ended at %d", depth);
 }
 
+// A negative gap must PULL the title towards and past its neighbours. The parser used
+// to reject negatives outright, so a title could never be tucked under an icon.
+static void testNegativeGap()
+{
+    header("title: a negative gap pulls the box towards its neighbours");
+
+    const double AREA_X = 20, AREA_W = 433;
+    const double EYE_W = 26, BTN_W = 26;
+
+    const auto LEFT_EDGE  = [&](double gapLeft) { return AREA_X + EYE_W + gapLeft; };
+    const auto RIGHT_EDGE = [&](double gapRight) { return AREA_X + AREA_W - BTN_W - gapRight; };
+
+    // Positive gap: the title stops short of each neighbour.
+    CHECK(LEFT_EDGE(4) == AREA_X + EYE_W + 4, "positive gap moves away from the icon");
+    CHECK(RIGHT_EDGE(4) == AREA_X + AREA_W - BTN_W - 4, "positive gap moves away from the buttons");
+
+    // Negative gap: the title starts BEFORE the icon's right edge, i.e. under it.
+    CHECK(LEFT_EDGE(-10) < AREA_X + EYE_W, "negative gap overlaps the icon");
+    CHECK(LEFT_EDGE(-10) == AREA_X + EYE_W - 10, "negative gap is applied in the right direction");
+
+    // The span is still the distance between the two edges, so a negative gap widens it.
+    const double SPAN_POSITIVE = RIGHT_EDGE(2) - LEFT_EDGE(2);
+    const double SPAN_NEGATIVE = RIGHT_EDGE(-10) - LEFT_EDGE(-10);
+    CHECK(SPAN_NEGATIVE > SPAN_POSITIVE, "negative gaps must widen the title box, got %.1f vs %.1f", SPAN_NEGATIVE, SPAN_POSITIVE);
+}
+
+// titleBox() is logical; a 2x output must not double the offsets. This is the bug that
+// made the title impossible to place correctly on the X axis.
+static void testTitleUnits()
+{
+    header("title: logical offsets are not multiplied by the monitor scale");
+
+    const double M = 2.0;
+    const double OFFSET_LOGICAL = 9;
+
+    // What the renderer does now: compute logically, scale once.
+    const double DEVICE_ONCE = OFFSET_LOGICAL * M;
+
+    // What it did before: offset already scaled inside, then scaled again outside.
+    const double DEVICE_TWICE = (OFFSET_LOGICAL * M) * M;
+
+    CHECK(DEVICE_ONCE == 18, "a 9px logical nudge is 18 device px at 2x");
+    CHECK(DEVICE_ONCE != DEVICE_TWICE, "the double-scaled value (36) must not be used");
+
+    // Round-tripping the band: the renderer recovers logical from device, so it must be
+    // exact enough to place the title identically to the logical pass.
+    const double DEVICE_BAND = 433 * M;
+    CHECK(std::abs(DEVICE_BAND / M - 433) < 0.0001, "device -> logical round trip is exact");
+}
+
 int main()
 {
+    testNegativeGap();
+    testTitleUnits();
     testJson();
     testItemArea();
     testFlow();

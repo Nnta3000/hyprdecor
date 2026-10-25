@@ -1,18 +1,36 @@
 # hyprdecor
 
-A Hyprland plugin that draws **nine-patch (`.9.png`) window decorations**: custom
-title bars and/or fancy frames around windows.
+A Hyprland plugin that draws **nine-patch window decorations**: pixel-art frames, title
+bars, icons and buttons around your windows, configured from your Lua config.
 
-The nine-patch format comes from Android. A 1 px border around the image stores
-metadata that defines which rows/columns stretch and where content is padded, so
-one small image scales cleanly to any window size without distortion.
+The nine-patch format comes from Android. A 1 px border around a png stores metadata that
+says which rows and columns stretch and where content may sit, so one small image scales
+cleanly to any window size without distorting its corners.
 
 <img width="747" height="587" alt="image" src="https://github.com/user-attachments/assets/2ce3cba3-1669-40d7-ae1d-37f58707acd7" />
 <img width="754" height="628" alt="image" src="https://github.com/user-attachments/assets/483eb4c3-684b-4f32-9be8-e7b0adc6455a" />
 <img width="698" height="582" alt="image" src="https://github.com/user-attachments/assets/27b81efa-4656-4e1b-909a-c3d7895e5616" />
 
-> **Status:** ported to Hyprland **0.56**. The plugin compiles and loads; drawing and
-> input paths are still being validated. See [Testing](#testing).
+> **Status:** works on Hyprland **0.56** with the **Lua config manager**. The config surface
+> below is what works today. It is being extended into a regions-and-items layout (items on
+> all four sides, vertical buttons, flexible placement); see [ROADMAP.md](ROADMAP.md) and
+> [docs/SPEC.md](docs/SPEC.md). Expect additions, and a gradual move of the old `title` and
+> `elements` blocks into that model (the old syntax will keep loading).
+
+hyprdecor decorates windows. Panels, taskbars and anything that is not attached to a
+window's own frame belong in a shell such as quickshell.
+
+---
+
+## Documentation
+
+| File | Read it if you want to |
+|---|---|
+| this README | install the plugin and configure what works today |
+| [docs/ninepatch.md](docs/ninepatch.md) | make or fix frame images (markers, naming, common mistakes) |
+| [docs/SPEC.md](docs/SPEC.md) | see the target config and exact semantics of the finished plugin |
+| [ROADMAP.md](ROADMAP.md) | see what is done, what is next and why |
+| [AGENTS.md](AGENTS.md) | work on the code (rules, architecture, build and test) |
 
 ---
 
@@ -20,51 +38,57 @@ one small image scales cleanly to any window size without distortion.
 
 | | |
 |---|---|
-| Hyprland | 0.56.x (`pkg-config hyprland`) |
-| Compiler | C++23 (`set(CMAKE_CXX_STANDARD 23)`) |
-| Deps | libdrm, libinput, libudev, pangocairo, pixman, wayland-server, xkbcommon, cairo |
+| Hyprland | 0.56.x, using the **Lua** config (`hyprland.lua`) |
+| Compiler | C++23 |
+| Libraries | cairo, pangocairo, pixman, libdrm, libinput, libudev, wayland-server, xkbcommon, Lua 5.5 (`pkg-config lua5.5`) |
 
-The plugin must be built against the **same headers as the running Hyprland**.
-Hyprland checks this at load time and refuses mismatched builds.
+The plugin must be built against the **same headers as the running Hyprland**. Hyprland
+compares a version hash at load time and refuses mismatched builds.
+
+All configuration goes through `hl.plugin.hyprdecor.setup({...})`, which only exists with
+the Lua config manager. A legacy `hyprland.conf` can load the plugin but cannot configure it.
 
 ---
 
 ## Build
 
-### CMake / Make (system packages)
-
 ```bash
-make debug      # Debug build  -> build/hyprdecor.so
+make debug      # Debug build   -> build/hyprdecor.so
 make release    # Release build
 ```
 
-`make` runs CMake into `build/`. The output is `build/hyprdecor.so`.
+`make` runs CMake into `build/`. The same build also produces the `ninepatch_test` binary
+(pure-logic unit tests; run it with `./build/ninepatch_test`).
 
-### Nix
+**Nix**
 
 ```bash
-nix build                    # plugin -> ./result/lib/libhyprdecor.so
-nix run                      # launch Hyprland with ./hyprland.conf
-nix run .#debug              # same, under gdb
+nix build        # plugin -> ./result/lib/libhyprdecor.so
+nix run          # launch Hyprland with ./hyprland.conf
+nix run .#debug  # same, under gdb
 ```
 
-### hyprpm
-
-`hyprpm.toml` declares `output = "build/hyprdecor.so"` and `build = ["make all"]`:
+**hyprpm** (`hyprpm.toml` declares `output = "build/hyprdecor.so"`):
 
 ```bash
-hyprpm add .          # register this checkout
+hyprpm add .
 hyprpm update
 hyprpm enable hyprdecor
 ```
 
 ---
 
-## Install / enable
+## Install
 
-The plugin is enabled by **loading it into the running compositor**. A plugin that
-fails to load can take the compositor down with it, so test in a throwaway instance
-first — see [Testing](#testing).
+A plugin that crashes takes the compositor with it, so try it in a nested instance first
+(see [Testing](#testing)). To load it from your config, add this to
+`~/.config/hypr/hyprland.lua` and then call `setup()`:
+
+```lua
+hl.plugin.load("/absolute/path/to/build/hyprdecor.so")
+```
+
+To try it in a running session without editing the config:
 
 ```bash
 hyprctl plugin load /absolute/path/to/build/hyprdecor.so
@@ -72,303 +96,190 @@ hyprctl plugin list
 hyprctl plugin unload /absolute/path/to/build/hyprdecor.so
 ```
 
-To load it at startup instead, add it to your config:
-
-**Lua config** (`~/.config/hypr/hyprland.lua`):
-
-```lua
-hl.plugin.load("/absolute/path/to/build/hyprdecor.so")
-```
-
-**Legacy config** (`~/.config/hypr/hyprland.conf`):
-
-```conf
-plugin = /absolute/path/to/build/hyprdecor.so
-```
+Loading the plugin alone configures nothing: until `setup()` is called there is no frame
+image, so you will not see a frame.
 
 ---
 
-## Quick start: a nine-patch title bar
+## Quick start
 
-The repo ships two sample sets: `assets/xp/` (XP-Luna style, 92×92 frames) and
-`assets/2000/` (2000-era style, 66×66 frames). Each has `frame_active.png` /
-`frame_inactive.png` plus button state images.
-
-**Lua config:**
+The smallest working config is a frame. The repo ships sample sets in `assets/`
+(`xp`, `2000`, `orange`).
 
 ```lua
 hl.plugin.load("/absolute/path/to/build/hyprdecor.so")
 
-hl.plugin("hyprdecor", {
-    -- "frame" resolves to frame_active.png / frame_inactive.png
-    ninepatch_texture        = "/absolute/path/to/assets/xp/frame",
-    ninepatch_linear_filtering = 1,
-    ninepatch_repeat         = 0,
-
-    -- This is what makes the frame visible: space reserved outside the window.
-    decoration_offset_top    = 22,
-    decoration_offset_left   = 5,
-    decoration_offset_right  = 5,
-    decoration_offset_bottom = 5,
-
-    decoration_padding       = 1,
-    decoration_title_enabled = 1,
-    decoration_title_size    = 9,
-    decoration_title_align   = 0,
-    decoration_title_placement = "top",
-    bar_text_font            = "Tahoma Bold",
-
-    hyprdecor-button = "0, hyprctl dispatch killactive, /absolute/path/to/assets/xp/close",
-    hyprdecor-button = "0, hyprctl dispatch fullscreen 1, /absolute/path/to/assets/xp/maximize",
+hl.plugin.hyprdecor.setup({
+  defaults = {
+    border = {
+      -- base path, no extension: resolves frame_active.png / frame_inactive.png
+      texture = "/absolute/path/to/assets/xp/frame",
+    },
+  },
 })
 ```
 
-**Legacy config:**
-
-```conf
-plugin = /absolute/path/to/build/hyprdecor.so
-
-plugin {
-    hyprdecor {
-        ninepatch_texture   = /absolute/path/to/assets/xp/frame
-        decoration_offset_top = 22
-        decoration_offset_left = 5
-        decoration_offset_right = 5
-        decoration_offset_bottom = 5
-
-        decoration_title_enabled = 1
-        decoration_title_size = 9
-        bar_text_font = Tahoma Bold
-
-        hyprdecor-button = 0, hyprctl dispatch killactive, /absolute/path/to/assets/xp/close
-        hyprdecor-button = 0, hyprctl dispatch fullscreen 1, /absolute/path/to/assets/xp/maximize
-    }
-}
-```
-
-**Important:** use **absolute paths**. Relative paths resolve against Hyprland's
-working directory, not your config directory, so `./assets/...` will usually fail
-silently and fall back to a plain colored bar.
-
-If the texture is missing or fails to parse, the plugin falls back to a solid
-`bar_color` rectangle, so "no frame, just a block" means the path is wrong.
-
----
-
-## How the nine-patch textures are found
-
-`ninepatch_texture` is a **base path without extension**. The plugin appends
-suffixes and uses the first file that exists:
-
-| Lookup | Suffixes tried, in order | Fallback if nothing matches |
-|---|---|---|
-| Active/focused frame | `_active.png`, `_focused.png`, `active.png`, `.png` | texture loading skipped |
-| Inactive frame | `_inactive.png`, `_unfocused.png`, `inactive.png` | active frame |
-| Buttons | `_normal/_active/_focused`, `_unfocused/_inactive`, `_hover`, `_pressed/_clicked` | previous state |
-
-So `ninepatch_texture = .../assets/xp/frame` resolves to `frame_active.png` and
-`frame_inactive.png`. You can also set `ninepatch_active` / `ninepatch_inactive`
-explicitly to override this.
-
-### The `.9.png` metadata format
-
-The image has a **1 px border** that the plugin reads and then crops off. Opaque
-black pixels in that border mark regions:
-
-```
-        ┌─────────────── top edge: X range that stretches ──────────────┐
-        ↓                                                              ↓
-   ┌────┬──────────────────────────────────────────────────────────────┐
-   │    │                                                              │ ← left edge: Y range
-   │    │                    image content                             │   that stretches
-   │    │                                                              │
-   └────┴──────────────────────────────────────────────────────────────┘
-        └────────────── bottom edge: X range that pads content ────────┘
-                                                                       right edge: Y padding
-```
-
-| Border | Meaning |
-|---|---|
-| Top | Horizontal stretch region |
-| Left | Vertical stretch region |
-| Bottom | Horizontal content padding |
-| Right | Vertical content padding |
-
-Corners stay unscaled; the marked middle band stretches (or tiles, see
-`ninepatch_repeat`). Content padding positions the title text and buttons.
-
-Both shipped sets parse as:
-
-| Set | Size | Stretch X | Stretch Y | Pad X | Pad Y |
-|---|---|---|---|---|---|
-| `xp` | 92×92 | 6–85 | 31–86 | 4–87 | 31–86 |
-| `2000` | 66×66 | 21–42 | 22–61 | 3–62 | 22–62 |
-
----
-
-## Options
-
-All options live under `plugin:hyprdecor:` (`plugin { hyprdecor { ... } }` in legacy
-config, `hl.plugin("hyprdecor", {...})` in Lua). All options are `long`/number
-unless noted.
-
-### Frame / nine-patch
-
-| Option | Default | Description |
-|---|---|---|
-| `enabled` | `1` | Master switch. `0` disables all decorations. |
-| `ninepatch_texture` | `""` | Base path of the frame images (no extension). |
-| `ninepatch_active` | `""` | Explicit focused frame path. Overrides the lookup. |
-| `ninepatch_inactive` | `""` | Explicit unfocused frame path. Falls back to active. |
-| `ninepatch_middle_alpha` | `0.0` | Alpha of the **center** patch. `0` = see-through middle. Use `1.0` for a solid frame image, `0.0` for a frame that only draws its borders. |
-| `ninepatch_repeat` | `0` | `1` tiles the middle patches, `0` stretches them. |
-| `ninepatch_linear_filtering` | `1` | `1` smooth scaling, `0` nearest-neighbour (crisp pixels). |
-
-### Reserved space (this is what puts the frame on screen)
-
-The decoration is drawn in space **outside** the window, so these must be non-zero
-or the frame overlaps the window and mostly hides behind Hyprland's own border.
-
-| Option | Default | Description |
-|---|---|---|
-| `decoration_offset_top` | `0` | Pixels reserved above the window (title bar height). |
-| `decoration_offset_left` | `0` | Pixels reserved left of the window. |
-| `decoration_offset_right` | `0` | Pixels reserved right of the window. |
-| `decoration_offset_bottom` | `0` | Pixels reserved below the window. |
-| `decoration_inset` | `0` | Inset applied to the frame. |
-| `decoration_padding` | `7` | Padding between frame edge and title/buttons. |
-| `decoration_title_placement` | `"top"` | `top`, `bottom`, `left`, or `right`. |
-| `bar_precedence_over_border` | `0` | `1` draws over Hyprland's border instead of behind it. |
-| `bar_part_of_window` | `1` | Whether the bar counts as part of the window. |
-| `decoration_render_above` | `0` | Render the decoration above instead of below the window. |
-
-### Title text
-
-| Option | Default | Description |
-|---|---|---|
-| `decoration_title_enabled` | `1` | Draw the window title. |
-| `decoration_title_size` | `10` | Font size in points. |
-| `decoration_title_align` | `0.5` | `0.0` = left, `0.5` = center, `1.0` = right. |
-| `bar_text_font` | `"Sans"` | Pango font description, e.g. `"Tahoma Bold 9"`. |
-| `col.text` | `rgba(ffffffff)` | Title text color. |
-
-### Buttons
-
-The `hyprdecor-button` keyword adds a button to the bar. Repeat it per button; they
-are laid out in the order defined.
-
-**Legacy config** (`keyword = value`, comma separated):
-
-```conf
-hyprdecor-button = size, command, active_tex[, inactive_tex[, hover_tex[, pressed_tex]]]
-```
-
-**Lua config** (string form):
+Then add a title and some images. This is the shape of the configuration used for
+development:
 
 ```lua
-hyprdecor-button = "0, hyprctl dispatch killactive, /abs/path/assets/xp/close"
+hl.plugin.hyprdecor.setup({
+  defaults = {
+    border = {
+      texture          = "/absolute/path/to/frame",
+      linear_filtering = false,   -- false = crisp pixels (nearest-neighbour)
+      scale            = 2,       -- scales the frame art (pixel art at 2x)
+    },
+
+    title = {
+      enabled = true,
+      size    = 13,
+      font    = "Sans",
+      mode    = "fill",           -- the title fills the space between the elements
+      align   = "left",           -- left | centre | right, inside its box
+      text_offset_x = 9,
+      text_offset_y = 0,
+      ellipsize = true,           -- long titles become "..."
+      background = { image = "/absolute/path/to/title.png" },
+    },
+
+    elements = {
+      { image = "/absolute/path/to/eye.png",
+        anchor = "top-left", offset_x = 19, offset_y = 9,
+        scale = 2, linear_filtering = false, interactive = true },
+      { image = "/absolute/path/to/close.png",
+        anchor = "top-right", offset_x = -8, offset_y = 8,
+        scale = 2, interactive = true },
+    },
+  },
+})
 ```
 
-| Field | Description |
+**Use absolute paths.** Relative paths resolve against Hyprland's working directory, not
+your config directory.
+
+`setup()` validates everything when the config loads. A mistake (a missing file, a wrong
+type) raises a Lua error that names the offending field, and nothing is half-applied.
+
+---
+
+## Configuration reference (what works today)
+
+This reference follows the working development config. Keys not listed here may exist in
+the source (`src/luaApi.cpp`); the target syntax is in [docs/SPEC.md](docs/SPEC.md).
+
+### `defaults.border`: the frame
+
+| Key | Description |
 |---|---|
-| `size` | Button size in px. `0` = use the image's own size. |
-| `command` | Dispatched when clicked. Usually `hyprctl dispatch ...`. |
-| `active_tex` | Base path for the button image. With only this field given, state suffixes are auto-resolved (`_normal`, `_unfocused`, `_hover`, `_pressed`, …). |
-| `inactive_tex`, `hover_tex`, `pressed_tex` | Optional explicit paths for each state. |
+| `texture` | Base path of the frame images, no extension. Required. |
+| `linear_filtering` | `true` smooth scaling, `false` nearest-neighbour. Use `false` for pixel art. |
+| `scale` | Integer scale of the frame art (2 = pixel art at 2x). The space the frame reserves around the window scales with it. |
+| `thickness` | Optional override of the reserved space per side. Leave it out and the nine-patch markers decide, which is usually right. |
 
-| Option | Default | Description |
+The frame is one nine-patch drawn over the whole decoration box, so corners stay
+continuous. The space it reserves around the window comes from the image: its content
+padding markers, falling back to the border sizes. See [docs/ninepatch.md](docs/ninepatch.md).
+
+**How the image files are found.** `texture` is a base path. The first existing file wins:
+
+| Frame | Tried in order | If none match |
 |---|---|---|
-| `bar_buttons_alignment` | `"right"` | `left` or `right`. |
-| `bar_button_padding` | `5` | Gap between buttons. |
-| `on_double_click` | `""` | Command run when the bar is double-clicked, e.g. `hyprctl dispatch fullscreen 1`. |
+| Focused | `_active.png`, `_focused.png`, `active.png`, `.png` | no frame image (a plain fallback bar may be drawn) |
+| Unfocused | `_inactive.png`, `_unfocused.png`, `inactive.png` | the focused frame |
 
-### Appearance
+### `defaults.title`: the title text
 
-| Option | Default | Description |
-|---|---|---|
-| `bar_color` | `rgba(33333388)` | Solid bar color, used when no texture resolves, and under blur. |
-| `bar_blur` | `0` | Blur behind a translucent bar. |
-| `bar_outline_color` | `rgba(ffffffff)` | Solid outline color (see below). |
-| `bar_outline_width` | `1` | Outline thickness in px. `0` disables it. |
-| `bar_outline_always` | `1` | `1` = draw outline over textures too, `0` = only when no texture resolved. |
+| Key | Description |
+|---|---|
+| `enabled` | Draw the window title. |
+| `size`, `font` | Font size in points and a Pango font family (for example `"Sans"`). |
+| `mode` | `"fill"`: the title spans what the elements leave free. `"box"`: the title is placed like an element. |
+| `gap` | Fill mode: `{ left, right, top, bottom }`. Left and right are the distance from neighbouring elements; top and bottom inset the box from the band edges. |
+| `align` | `left`, `centre` or `right`, inside the title box. |
+| `text_offset_x`, `text_offset_y` | Move the text inside its box. |
+| `ellipsize` | Shorten long titles with an ellipsis. |
+| `background.image` | Image drawn behind the text, in the same box so they cannot drift apart. |
 
-### App icon
+### `defaults.elements`: images and icons
 
-| Option | Default | Description |
-|---|---|---|
-| `decoration_appicon_enabled` | `1` | Show the app icon in the bar. |
-| `decoration_appicon_offset` | `0 0` | X/Y offset in px. |
+A list of images placed in the top band and drawn in order.
+
+| Key | Description |
+|---|---|
+| `image` | Absolute path to a png. |
+| `anchor` | `"top-left"`, `"top-centre"` or `"top-right"`. |
+| `offset_x`, `offset_y` | Distance from the anchor, in logical pixels. |
+| `scale` | Integer scale for this image. |
+| `linear_filtering` | Overrides the frame's filtering for this image. |
+| `interactive` | Reacts to the pointer: enables the `_hovered` and `_pressed` images. |
+
+**State images.** They are found from `image` by suffix, placed before the extension
+(`close.png` becomes `close_hovered.png`). A missing file falls back to the base image, so
+adding states is optional.
+
+| Suffix | When it is shown |
+|---|---|
+| `_unfocused` | the window is not focused |
+| `_hovered` | the pointer is over the element (`interactive = true`) |
+| `_pressed` | the pointer is pressed on it (`interactive = true`) |
 
 ---
 
 ## Window rules
 
-Three effects are registered by the plugin:
+Three window-rule effects are registered:
 
-| Rule | Description |
+| Effect | Description |
 |---|---|
 | `hyprdecor:no_bar` | Hide the decoration for matching windows. |
-| `hyprdecor:bar_color` | Override `bar_color` for matching windows (rgba color). |
-| `hyprdecor:title_color` | Override `col.text` for matching windows (rgba color). |
+| `hyprdecor:bar_color` | Override the solid bar colour (used when no frame texture resolves). |
+| `hyprdecor:title_color` | Override the title text colour. |
 
-```conf
-windowrulev2 = hyprdecor:no_bar, class:^(steam)$
-windowrulev2 = hyprdecor:bar_color rgba(ff0000ff), class:^(firefox)$
-```
+The syntax for writing these as Lua window rules has not been verified yet (it is on the
+[roadmap](ROADMAP.md)). An invalid rule aborts the whole config, so try it in a throwaway
+config first.
 
 ---
 
-## Debugging and the outline placeholder
+## Inspecting and debugging
 
-If nothing appears, work through this order:
-
-1. `hyprctl plugin list` — is the plugin loaded?
-2. `hyprctl configerrors` — did any option fail to parse?
-3. Are `decoration_offset_top/left/right/bottom` non-zero? With all-zero offsets
-   the frame has nowhere to draw and hides behind the window border.
-4. Are the texture paths **absolute** and correct? A wrong path silently falls back
-   to `bar_color`.
-5. `print`/log: the plugin logs with the `[HYPRDECOR]` prefix at debug level.
-   Enable `debug:enable_stdout_logs = true` and `debug:log_level = 0` to see it.
-
-### Outline placeholder
-
-A solid outline is drawn around the decoration box, useful to confirm the decoration
-exists before textures are set up:
-
-```conf
-bar_outline_color  = rgba(ffffffff)   # white
-bar_outline_width  = 3
-bar_outline_always = 1
+```bash
+hyprctl hyprdecor status     # the plugin's current state, as text
 ```
 
-Keep `bar_outline_width` small (1–3 px). It is drawn **inside** the decoration box,
-so with zero offsets a 1 px line sits under Hyprland's own border and is invisible.
+If nothing appears, work through this list:
+
+1. `hyprctl plugin list`: is the plugin loaded?
+2. Did `setup()` run, and did it fail? Check Hyprland's config error output
+   (`hyprctl configerrors`) and the log; the message names the field.
+3. Are all paths absolute, and can the compositor's user read them?
+4. Does the frame png have markers? Without them the whole image stretches as one piece.
+   See [docs/ninepatch.md](docs/ninepatch.md).
+5. Enable `debug:enable_stdout_logs` and look for lines prefixed `[HYPRDECOR]`.
+   When diagnosing, save the whole log to a file and search that, rather than filtering live.
 
 ---
 
 ## Testing
 
-A plugin crash takes down the compositor that loaded it. Test in a **nested**
-Hyprland instance (a window inside your session) and load the plugin by hand.
-
-A ready-made harness lives in `~/Documents/hyprtest/`:
+A plugin crash takes down the compositor that loaded it. Test in a **nested** Hyprland
+instance (a window inside your session) with a throwaway config, never your real one:
 
 ```bash
 # from a terminal inside your real session
-Hyprland -c /home/agent/Documents/hyprtest/test.lua
-
-# inside the nested window
-hyprctl plugin load /home/agent/Documents/hyprdecor/build/hyprdecor.so
-hyprctl plugin list
+Hyprland -c /path/to/test.lua 2>&1 | tee ~/full.log
 ```
 
-Logs land in `$XDG_RUNTIME_DIR/hypr/<signature>/hyprland.log`; crash reports in
-`~/.cache/hyprland/`.
+Pure logic (nine-patch parsing, layout arithmetic) has unit tests that do not need Hyprland:
 
-Only add `plugin = ...` to your real config once the nested instance has survived a
-workout: open/resize windows, switch workspaces, fullscreen, click buttons, drag by
-the bar.
+```bash
+make debug && ./build/ninepatch_test
+```
+
+Only add the plugin to your real config after the nested instance has survived a workout:
+open and resize windows, change focus, switch workspaces, fullscreen, hover and click
+elements. Crash reports land in `~/.cache/hyprland/`.
 
 ---
 
@@ -376,12 +287,18 @@ the bar.
 
 | File | Role |
 |---|---|
-| `src/main.cpp` | `PLUGIN_INIT`/`PLUGIN_EXIT`, event registration, window rules. |
-| `src/plugin.{hpp,cpp}` | `CPlugin`: config values, frame/button texture loading. |
-| `src/hyprWindowDecorator.{hpp,cpp}` | `IHyprWindowDecoration`: layout, drawing, mouse/touch input. |
-| `src/renderPassElement.{hpp,cpp}` | Render-pass element that draws the decoration. |
-| `src/util.hpp` | Nine-patch parsing, texture upload, app icon lookup. |
-| `src/compat.hpp` | Small shims for Hyprland APIs that moved/were removed in 0.56. |
+| `src/main.cpp` | `PLUGIN_INIT` / `PLUGIN_EXIT`, event listeners, window-rule effects, `hyprctl` command. |
+| `src/config.hpp` | The whole configuration as one struct, filled by `setup()`. |
+| `src/luaApi.{hpp,cpp}` | `hl.plugin.hyprdecor.setup()`: parsing and validation of the Lua table. |
+| `src/plugin.{hpp,cpp}` | `CPlugin`: applies the config, resolves and loads textures. |
+| `src/hyprWindowDecorator.{hpp,cpp}` | The window decoration: layout, drawing, mouse and touch input. |
+| `src/renderPassElement.{hpp,cpp}` | The render-pass element that draws the decoration. |
+| `src/ninepatch.hpp` | Nine-patch parsing and composition (no Hyprland dependency, unit-tested). |
+| `src/titlebox.hpp` | Title box arithmetic (no Hyprland dependency, unit-tested). |
+| `src/util.hpp` | Texture upload and app-icon lookup. |
+| `src/compat.hpp` | Small shims for Hyprland APIs that changed in 0.56. |
+| `tests/` | Unit tests for the pure-logic headers. |
+| `assets/` | Sample frame sets (`xp`, `2000`, `orange`). |
 
 ---
 
