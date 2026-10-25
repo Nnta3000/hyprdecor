@@ -249,11 +249,17 @@ inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vect
     };
 
     // 1. Measure. Fixed items take their natural size; fillers claim weight.
-    double startFixed = 0, endFixed = 0, totalWeight = 0;
-    int    fixedCount = 0;
+    // Main-axis margin of an item: the only margins that take flow space.
+    const auto MAIN_MARGIN = [&](const SItemSpec &s) { return HORIZONTAL ? s.marginLeft + s.marginRight : s.marginTop + s.marginBottom; };
+
+    double startFixed = 0, endFixed = 0, startMargins = 0, endMargins = 0, totalWeight = 0;
+    int    startCount = 0, endCount = 0;
 
     for (const auto &s : specs)
     {
+        // A filler's margins are NOT fixed cost: they are taken out of its own share
+        // below, so `margin` narrows a filler instead of letting it overrun its
+        // neighbours. A fixed item's margins are real space it consumes.
         if (s.fill)
         {
             totalWeight += s.weight;
@@ -261,18 +267,24 @@ inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vect
         }
 
         if (s.align == eAlign::End)
+        {
             endFixed += EXTENT(s);
+            endMargins += MAIN_MARGIN(s);
+            endCount++;
+        }
         else if (s.align == eAlign::Start)
+        {
             startFixed += EXTENT(s);
-
-        fixedCount++;
+            startMargins += MAIN_MARGIN(s);
+            startCount++;
+        }
     }
 
-    // Gaps between adjacent items. `gap` is the distance between items, so it applies
-    // between groups too but never outside them.
-    const double GAPS = m.gap * std::max(0, fixedCount + (totalWeight > 0 ? 1 : 0) - 1);
+    // Gaps separate ADJACENT items, so there is one fewer gap than there are items on
+    // each side that has any.
+    const double GAPS = m.gap * (double)(std::max(0, startCount - 1) + std::max(0, endCount - 1) + (startCount > 0 && endCount > 0 ? 1 : 0));
 
-    const double FREE = std::max(0.0, MAIN - startFixed - endFixed - GAPS);
+    const double FREE = std::max(0.0, MAIN - startFixed - endFixed - startMargins - endMargins - GAPS);
 
     if (totalWeight > 0 && FREE <= 0)
         titleVoids = true;
@@ -307,7 +319,12 @@ inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vect
         // fill = true plus an explicit height.
         const double EXPLICIT = EXTENT(s);
         const bool   HASEXPLICIT = EXPLICIT > 0;
-        double       extent = isFiller ? (HASEXPLICIT ? EXPLICIT : (totalWeight > 0 ? FREE * s.weight / totalWeight : 0.0)) : EXPLICIT;
+        // A filler's share is reduced by its own main-axis margins, so `margin` on a
+        // filler changes its SIZE. Applying the margin as a shift instead left the box
+        // full width and made it overrun the end group by exactly the margin.
+        const double SELF_MARGIN = isFiller ? MAIN_MARGIN(s) : 0.0;
+        double       extent      = isFiller ? (HASEXPLICIT ? EXPLICIT : (totalWeight > 0 ? std::max(0.0, FREE * s.weight / totalWeight - SELF_MARGIN) : 0.0))
+                                            : EXPLICIT;
 
         if (isFiller && extent <= 0)
             continue;
@@ -319,6 +336,12 @@ inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vect
         const double CROSS_NATURAL = CROSS_OF(s);
         const double CROSS_SIZE    = (isFiller && CROSS_NATURAL <= 0) ? (HORIZONTAL ? AREA.h : AREA.w) : CROSS_NATURAL;
 
+        // Main-axis margins of a FIXED item are real space. The LEADING side becomes an
+        // inset on the item; BOTH sides advance the cursor, otherwise `margin.right`
+        // was silently ignored and the next item butted against this one.
+        const double LEAD  = HORIZONTAL ? s.marginLeft : s.marginTop;
+        const double TRAIL = HORIZONTAL ? s.marginRight : s.marginBottom;
+
         if (s.align == eAlign::End && !isFiller)
         {
             // Stacked flow: the first end item meets the edge and each further one is
@@ -329,11 +352,15 @@ inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vect
             {
                 if (ENDPLACED > 0)
                     cursorEnd -= m.gap;
-                cursorEnd -= extent;
+                cursorEnd -= TRAIL + extent;
                 mainPos = cursorEnd;
+                cursorEnd -= 0;
             }
             else
-                mainPos = MAIN_ORIGIN + MAIN - extent;
+            {
+                // Anchored to the end edge; its trailing margin moves it inwards.
+                mainPos = MAIN_ORIGIN + MAIN - TRAIL - extent;
+            }
 
             ENDPLACED++;
         }
@@ -344,12 +371,14 @@ inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vect
             // Same on the start side: a gap separates, it does not lead.
             if (STARTPLACED > 0)
                 cursorStart += m.gap;
+            cursorStart += LEAD;
             mainPos = cursorStart;
-            cursorStart += extent;
+            cursorStart += extent + TRAIL;
             STARTPLACED++;
         }
 
-        mainPos += HORIZONTAL ? s.marginLeft + s.offsetX : s.marginTop + s.offsetY;
+        // Leading margin already applied above; only the user nudge remains.
+        mainPos += HORIZONTAL ? s.offsetX : s.offsetY;
 
         // Cross axis: centred by default, or placed by cross_align inside the area minus
         // this item's cross margins.
@@ -366,6 +395,10 @@ inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vect
             crossPos += (crossAvail - CROSS_CLAMPED) / 2.0;
         else if (s.crossAlign == eAlign::End)
             crossPos += crossAvail - CROSS_CLAMPED;
+
+        // The cross-axis offset was never applied: in a row, `offset_y` was dead (and in
+        // a column, `offset_x`), so an element could not be nudged across the band.
+        crossPos += HORIZONTAL ? s.offsetY : s.offsetX;
 
         SResolvedItem item;
         item.id       = s.id;

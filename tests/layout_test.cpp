@@ -457,8 +457,65 @@ static void testEndIndependent()
     CHECK_RECT(R.items[1].rect, 453 - 13 - 30, R.items[1].rect.y, 13, 14, "end item with offset -30");
 }
 
+// Regressions: margins and cross offsets were silently ignored in several places.
+static void testMarginsAndOffsets()
+{
+    header("flow: margins and cross offsets are actually applied");
+
+    const auto M = orangeFrame();
+
+    // 1. A filler's main-axis margin must SHRINK it, not shift a full-width box.
+    {
+        Layout::SItemSpec t;
+        t.id = 0; t.kind = Layout::eItemKind::Title; t.fill = true; t.weight = 1;
+        t.marginLeft = 10;
+
+        auto R = Layout::compute(M, {t});
+
+        CHECK(R.items[0].rect.x == 30, "margin.left insets the filler, got x=%.0f", R.items[0].rect.x);
+        CHECK(std::abs(R.items[0].rect.w - 423) < 0.001, "and narrows it, got w=%.0f", R.items[0].rect.w);
+        CHECK(std::abs(R.items[0].rect.x + R.items[0].rect.w - 453) < 0.001, "it must not overrun the end");
+    }
+
+    // 2. Cross offset on a row is offset_y; it was dead because only the main-axis
+    //    branch ever read it.
+    {
+        auto a = imageItem(0, 10, 10, Layout::eAlign::Start, 0);
+        a.offsetY = -2;
+        auto b = imageItem(1, 10, 10, Layout::eAlign::Start, 0);
+
+        auto R = Layout::compute(M, {a, b});
+
+        CHECK(std::abs(R.items[0].rect.y - (R.items[1].rect.y - 2)) < 0.001, "offset_y must move the element across the band");
+    }
+
+    // 3. A fixed item's trailing margin is real space for the next item.
+    {
+        auto a = imageItem(0, 10, 10, Layout::eAlign::Start, 0);
+        auto b = imageItem(1, 10, 10, Layout::eAlign::Start, 0);
+        b.marginRight = 10;
+        auto c = imageItem(2, 10, 10, Layout::eAlign::Start, 0);
+
+        auto R = Layout::compute(M, {a, b, c});
+
+        CHECK(R.items[2].rect.x == 20 + 10 + 10 + 10, "margin.right leaves a gap before the next item, got %.0f", R.items[2].rect.x);
+    }
+
+    // 4. An end item's trailing margin moves it inwards instead of overrunning the edge.
+    {
+        auto a = imageItem(0, 10, 10, Layout::eAlign::End, 0);
+        a.marginLeft = 10;
+
+        auto R = Layout::compute(M, {a});
+
+        CHECK(std::abs(R.items[0].rect.x + R.items[0].rect.w - 453) < 0.001, "end item must not overrun the end edge, right=%.0f",
+              R.items[0].rect.x + R.items[0].rect.w);
+    }
+}
+
 int main()
 {
+    testMarginsAndOffsets();
     testEndIndependent();
     testGap();
     testFillWeights();
