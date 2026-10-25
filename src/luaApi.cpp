@@ -12,6 +12,8 @@ extern "C" {
 }
 
 #include <format>
+#include <map>
+#include <optional>
 #include <string>
 
 using namespace Hyprdecor::Lua;
@@ -264,6 +266,85 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             NEXT.titleEnabled = boolField(L, TITLE, "enabled", true);
         if (hasField(L, TITLE, "size"))
             NEXT.titleSize = (int)numberField(L, TITLE, "size", 10);
+
+        if (hasField(L, TITLE, "mode"))
+        {
+            const auto MODE = stringField(L, TITLE, "mode");
+            if (!MODE)
+                return raise(L, "hyprdecor.setup: 'defaults.title.mode' must be a string");
+            if (*MODE == "fill")
+                NEXT.titleMode = SConfig::eTitleMode::Fill;
+            else if (*MODE == "box")
+                NEXT.titleMode = SConfig::eTitleMode::Box;
+            else
+                return raise(L, "hyprdecor.setup: 'defaults.title.mode' must be \"fill\" or \"box\" (got \"{}\")", *MODE);
+        }
+
+        if (hasField(L, TITLE, "anchor"))
+        {
+            const auto ANCHOR = stringField(L, TITLE, "anchor");
+            if (!ANCHOR)
+                return raise(L, "hyprdecor.setup: 'defaults.title.anchor' must be a string");
+
+            static const std::map<std::string, SConfig::eTitleAnchor> ANCHORS = {
+                {"top-left", SConfig::eTitleAnchor::TopLeft},           {"top-centre", SConfig::eTitleAnchor::TopCentre},
+                {"top-center", SConfig::eTitleAnchor::TopCentre},       {"top-right", SConfig::eTitleAnchor::TopRight},
+                {"centre-left", SConfig::eTitleAnchor::CentreLeft},     {"center-left", SConfig::eTitleAnchor::CentreLeft},
+                {"centre", SConfig::eTitleAnchor::Centre},              {"center", SConfig::eTitleAnchor::Centre},
+                {"centre-right", SConfig::eTitleAnchor::CentreRight},   {"center-right", SConfig::eTitleAnchor::CentreRight},
+                {"bottom-left", SConfig::eTitleAnchor::BottomLeft},     {"bottom-centre", SConfig::eTitleAnchor::BottomCentre},
+                {"bottom-center", SConfig::eTitleAnchor::BottomCentre}, {"bottom-right", SConfig::eTitleAnchor::BottomRight},
+            };
+
+            const auto IT = ANCHORS.find(*ANCHOR);
+            if (IT == ANCHORS.end())
+                return raise(L, "hyprdecor.setup: 'defaults.title.anchor' is not a valid anchor (got \"{}\")", *ANCHOR);
+            NEXT.titleAnchor = IT->second;
+        }
+
+        // `offset = { x, y }`, strict: a missing component is 0, a wrong type is an error.
+        if (hasField(L, TITLE, "offset"))
+        {
+            lua_getfield(L, TITLE, "offset");
+            if (lua_type(L, -1) != LUA_TTABLE)
+            {
+                lua_pop(L, 1);
+                return raise(L, "hyprdecor.setup: 'defaults.title.offset' must be a table {{ x, y }}");
+            }
+
+            const int OFFSET = lua_gettop(L);
+            const auto COMP = [&](const char *name) -> std::optional<double> {
+                lua_getfield(L, OFFSET, name);
+                if (lua_isnil(L, -1))
+                {
+                    lua_pop(L, 1);
+                    return 0.0;
+                }
+                if (!lua_isnumber(L, -1))
+                {
+                    lua_pop(L, 1);
+                    return std::nullopt;
+                }
+                const double V = lua_tonumber(L, -1);
+                lua_pop(L, 1);
+                return V;
+            };
+
+            const auto OX = COMP("x");
+            const auto OY = OX ? COMP("y") : std::nullopt;
+            lua_pop(L, 1);
+            if (!OX || !OY)
+                return raise(L, "hyprdecor.setup: 'defaults.title.offset.x' and '.y' must be numbers");
+            NEXT.titleOffsetX = *OX;
+            NEXT.titleOffsetY = *OY;
+        }
+
+        if (hasField(L, TITLE, "width"))
+            NEXT.titleWidth = numberField(L, TITLE, "width", -1);
+        if (hasField(L, TITLE, "height"))
+            NEXT.titleHeight = numberField(L, TITLE, "height", -1);
+
+        // fill mode only: horizontal alignment of the text inside the box.
         if (hasField(L, TITLE, "align"))
         {
             const auto ALIGN = stringField(L, TITLE, "align");
@@ -306,26 +387,10 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             if (GAPS.bottom >= 0)
                 NEXT.titleGapBottom = GAPS.bottom;
         }
-        if (hasField(L, TITLE, "gap_left"))
-            NEXT.titleGapLeft = numberField(L, TITLE, "gap_left", 0);
-        if (hasField(L, TITLE, "gap_right"))
-            NEXT.titleGapRight = numberField(L, TITLE, "gap_right", 0);
-        if (hasField(L, TITLE, "offset_x"))
-            NEXT.titleOffsetX = numberField(L, TITLE, "offset_x", 0);
-        if (hasField(L, TITLE, "offset_y"))
-            NEXT.titleOffsetY = numberField(L, TITLE, "offset_y", 0);
         if (hasField(L, TITLE, "text_offset_x"))
             NEXT.textOffsetX = numberField(L, TITLE, "text_offset_x", 0);
         if (hasField(L, TITLE, "text_offset_y"))
             NEXT.textOffsetY = numberField(L, TITLE, "text_offset_y", 0);
-        if (hasField(L, TITLE, "max_width"))
-            NEXT.titleMaxWidth = numberField(L, TITLE, "max_width", -1);
-        if (hasField(L, TITLE, "max_height"))
-            NEXT.titleMaxHeight = numberField(L, TITLE, "max_height", -1);
-        if (hasField(L, TITLE, "min_width"))
-            NEXT.titleMinWidth = numberField(L, TITLE, "min_width", -1);
-        if (hasField(L, TITLE, "min_height"))
-            NEXT.titleMinHeight = numberField(L, TITLE, "min_height", -1);
         if (hasField(L, TITLE, "ellipsize"))
             NEXT.titleEllipsize = boolField(L, TITLE, "ellipsize", true);
 
@@ -340,8 +405,6 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
 
             NEXT.titleBgEnabled = boolField(L, BG, "enabled", true);
             NEXT.titleBgPath    = *BGIMAGE;
-            NEXT.titleBgStretchMax = hasField(L, BG, "max_stretch") ? numberField(L, BG, "max_stretch", -1) : -1;
-            NEXT.titleBgStretchMin = hasField(L, BG, "min_stretch") ? numberField(L, BG, "min_stretch", -1) : -1;
 
             lua_pop(L, 1);
         }

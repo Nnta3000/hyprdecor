@@ -6,6 +6,7 @@
 // usable as a regression gate.
 
 #include "ninepatch.hpp"
+#include "titlebox.hpp"
 
 #include <cairo/cairo.h>
 
@@ -668,6 +669,61 @@ static void testMinStretchFloor()
     }
 }
 
+// The two title positioning modes. Fill is driven by the neighbours, box by an anchor.
+static void testTitleModes()
+{
+    header("title: fill mode follows the neighbours, box mode follows the anchor");
+
+    using namespace TitleBox;
+
+    // fill: 400 wide band, eye ends at 40, buttons start at 360, gap 2 on both sides.
+    {
+        const auto R = layoutFill(0, 0, 400, 48, 40 + 2, 360 - 2, 0, 0);
+        CHECK(R.x == 42, "fill must start after the left element + gap, got %.0f", R.x);
+        CHECK(R.w == 316, "fill must end before the right element + gap, got %.0f", R.w);
+        CHECK(R.h == 48, "fill height must be the band when the gaps are 0");
+        CHECK(R.drawable(), "a real span must be drawable");
+    }
+
+    // fill: top/bottom gaps inset the box vertically.
+    {
+        const auto R = layoutFill(0, 0, 400, 48, 0, 400, 4, 6);
+        CHECK(R.y == 4 && R.h == 38, "vertical gaps must inset the box, got y=%.0f h=%.0f", R.y, R.h);
+    }
+
+    // fill: neighbours crossing each other -> nothing drawn.
+    {
+        const auto R = layoutFill(0, 0, 400, 48, 300, 200, 0, 0);
+        CHECK(!R.drawable(), "overlapping neighbours must yield an undrawable box");
+    }
+
+    // box: every anchor, in a 400x48 band with a 100x20 box.
+    {
+        const auto TL = layoutPlaced(0, 0, 400, 48, 100, 20, eAnchor::TopLeft, 5, 6);
+        CHECK(TL.x == 5 && TL.y == 6, "top-left = band corner + offset");
+
+        const auto TC = layoutPlaced(0, 0, 400, 48, 100, 20, eAnchor::TopCentre, 0, 0);
+        CHECK(TC.x == 150 && TC.y == 0, "top-centre must centre horizontally, got x=%.0f", TC.x);
+
+        const auto TR = layoutPlaced(0, 0, 400, 48, 100, 20, eAnchor::TopRight, 0, 0);
+        CHECK(TR.x == 300, "top-right must touch the right edge, got x=%.0f", TR.x);
+
+        const auto C = layoutPlaced(0, 0, 400, 48, 100, 20, eAnchor::Centre, 0, 0);
+        CHECK(C.x == 150 && C.y == 14, "centre must centre both axes, got %.0f,%.0f", C.x, C.y);
+
+        const auto BR = layoutPlaced(0, 0, 400, 48, 100, 20, eAnchor::BottomRight, 0, 0);
+        CHECK(BR.x == 300 && BR.y == 28, "bottom-right must touch the far corner");
+
+        const auto BL = layoutPlaced(0, 0, 400, 48, 100, 20, eAnchor::BottomLeft, 2, 3);
+        CHECK(BL.x == 2 && BL.y == 31, "bottom-left = corner + offset");
+    }
+
+    // box: the anchor decides the text alignment too, so "centre" really centres.
+    CHECK(textAlignFor(eAnchor::TopLeft) == 0.0, "left anchor -> left text");
+    CHECK(textAlignFor(eAnchor::Centre) == 0.5, "centre anchor -> centred text");
+    CHECK(textAlignFor(eAnchor::BottomRight) == 1.0, "right anchor -> right text");
+}
+
 int main()
 {
     std::printf("hyprdecor nine-patch tests\n");
@@ -687,6 +743,7 @@ int main()
     testTitleFitsOrVoids();
     testPixelSizeInvariant();
     testMinStretchFloor();
+    testTitleModes();
 
     std::printf("\n%s (%d failure%s)\n", g_failures ? "FAILED" : "ALL PASSED", g_failures, g_failures == 1 ? "" : "s");
     return g_failures ? 1 : 0;

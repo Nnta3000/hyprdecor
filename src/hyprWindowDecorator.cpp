@@ -30,6 +30,8 @@
 #include "plugin.hpp"
 #include "compat.hpp"
 #include "util.hpp"
+#include "ninepatch.hpp"
+#include "titlebox.hpp"
 
 CHyprWindowDecorator::CHyprWindowDecorator(PHLWINDOW pWindow) : IHyprWindowDecoration(pWindow)
 {
@@ -473,26 +475,33 @@ void CHyprWindowDecorator::renderText(SP<Render::ITexture> out, const std::strin
     cairo_surface_destroy(CAIROSURFACE);
 }
 
-// The title occupies the gap between the left- and right-anchored elements of the band.
-// Both the text and its backdrop are computed from this box, which is what makes them
-// impossible to desynchronise: there is no independent "title background" position.
+// The box the title text and its backdrop both live in. Two modes, mirroring the way
+// `elements` are positioned:
+//
+//   "fill" : whatever the left- and right-anchored elements leave between them, with
+//            `gap` as the distance from those elements.
+//   "box"  : placed like an element, anchor + offset, then sized by width/height.
+//
+// Computing one box for both the text and the backdrop is what makes them impossible to
+// desynchronise: there is no independent "title background" position.
 CBox CHyprWindowDecorator::titleBox(const CBox &band, const float scale) const
 {
     const auto &C = gPlugin->cfg;
 
-    // Widest extent reached by elements anchored left / right, in band-local px.
-    // Layout spacing only, per side: titleInset is text padding and is applied inside
-    // the box. The eye and the buttons are usually different distances away.
-    double leftEdge  = C.titleGapLeft * scale;
-    double rightEdge = band.width - C.titleGapRight * scale;
+    if (C.titleMode == SConfig::eTitleMode::Box)
+        return titleBoxPlaced(band, scale);
 
+    // Widest extent reached by elements anchored left / right, in band-local px. Only
+    // the elements push the box: `gap` is the distance between the two.
+    double leftEdge  = 0;
+    double rightEdge = band.width;
 
     for (const auto &el : gPlugin->m_vElements)
     {
         if (!el.tex || el.tex->m_texID == 0)
             continue;
 
-        const double W = el.cfg.width > 0 ? el.cfg.width * scale : el.naturalSize.x * el.cfg.scale.value_or(1) * scale;
+        const double W  = el.cfg.width > 0 ? el.cfg.width * scale : el.naturalSize.x * el.cfg.scale.value_or(1) * scale;
         const double OX = el.cfg.offsetX * scale;
 
         if (el.cfg.anchor == SElement::eAnchor::TopLeft)
@@ -501,56 +510,53 @@ CBox CHyprWindowDecorator::titleBox(const CBox &band, const float scale) const
             rightEdge = std::min(rightEdge, band.width - W + OX - C.titleGapRight * scale);
     }
 
-    // No room between the neighbours: report an empty box so nothing is drawn. A
-    // zero-width box used to still render the text, which spilled over its neighbours.
-    const double AVAILABLE = rightEdge - leftEdge;
-    if (AVAILABLE <= 0)
-        return {band.x + leftEdge, band.y, 0, 0};
+    // No room between the neighbours means an empty box, so nothing is drawn: a
+    // zero-width box used to still render text that spilled over them.
+    const auto R = TitleBox::layoutFill(band.x, band.y, band.width, band.height, leftEdge, rightEdge, C.titleGapTop * scale,
+                                        C.titleGapBottom * scale);
+    return {R.x, R.y, R.w, R.h};
+}
 
-    const double BANDH = std::max(0.0, band.height - (C.titleGapTop + C.titleGapBottom) * scale);
-    if (BANDH <= 0)
-        return {band.x, band.y, 0, 0};
+// "box" mode: the same idea as SElement. The anchor picks a corner/edge of the band,
+// `offset` moves from it, and `width`/`height` size the stretch band in source px.
+CBox CHyprWindowDecorator::titleBoxPlaced(const CBox &band, const float scale) const
+{
+    const auto &C = gPlugin->cfg;
 
-    double w = AVAILABLE;
-    double h = BANDH;
+    // 1. Size. `width`/`height` are the stretch band in source px, exactly like
+    //    max_stretch on an element; the fixed corners come on top, never resized.
+    const bool HASART = C.titleBgEnabled && gPlugin->m_pTitleBgTex && gPlugin->m_pTitleBgTex->m_texID != 0 && gPlugin->m_titleBgNPI.defined;
+    const auto &NPI   = gPlugin->m_titleBgNPI;
 
-    // With a backdrop the box IS the backdrop: its size is derived from the nine-patch
-    // band, so a bound on the stretch can never squash the art's pixels.
-    if (C.titleBgEnabled && gPlugin->m_pTitleBgTex && gPlugin->m_pTitleBgTex->m_texID != 0 && gPlugin->m_titleBgNPI.defined)
+    const double BS = (double)std::max(1, gPlugin->cfg.artScale) * scale;
+
+    double w = -1, h = -1;
+    if (HASART)
     {
-        const double BS = (double)std::max(1, gPlugin->cfg.artScale) * scale;
-
-        const auto G = NinePatch::layout(gPlugin->m_titleBgNPI, gPlugin->m_titleBgSize.x, gPlugin->m_titleBgSize.y, AVAILABLE, BANDH, BS,
-                                         C.titleBgStretchMax, -1, C.titleBgStretchMin, -1);
-
-        w = std::min(AVAILABLE, NinePatch::layoutWidth(G));
-        h = std::min(BANDH, NinePatch::layoutHeight(G));
+        const double BANDW = C.titleWidth >= 0 ? C.titleWidth * BS : 0;
+        const double BANDH = C.titleHeight >= 0 ? C.titleHeight * BS : 0;
+        w = (NPI.border[0] + NPI.border[2]) * BS + BANDW;
+        h = (NPI.border[1] + NPI.border[3]) * BS + BANDH;
     }
     else
     {
-        // Without a backdrop the box is just a span of the band; bounds apply directly.
-        if (C.titleMaxWidth > 0)
-            w = std::min(w, C.titleMaxWidth * scale);
-        if (C.titleMinWidth > 0)
-            w = std::max(w, C.titleMinWidth * scale);
-        if (C.titleMaxHeight > 0)
-            h = std::min(h, C.titleMaxHeight * scale);
-        if (C.titleMinHeight > 0)
-            h = std::max(h, C.titleMinHeight * scale);
-
-        w = std::min(w, AVAILABLE);
-        h = std::min(h, BANDH);
+        if (C.titleWidth >= 0)
+            w = C.titleWidth * scale;
+        if (C.titleHeight >= 0)
+            h = C.titleHeight * scale;
     }
 
-    double x = band.x + leftEdge + C.titleOffsetX * scale;
-    if (C.titleAlign == "right")
-        x = band.x + rightEdge - w + C.titleOffsetX * scale;
-    else if (C.titleAlign == "centre")
-        x = band.x + leftEdge + (AVAILABLE - w) / 2.0 + C.titleOffsetX * scale;
+    // A box with no explicit size still needs to be drawable: fall back to the band.
+    if (w <= 0)
+        w = band.width;
+    if (h <= 0)
+        h = band.height;
 
-    const double y = band.y + C.titleGapTop * scale + C.titleOffsetY * scale;
+    // 2. Position from the anchor.
+    const auto R = TitleBox::layoutPlaced(band.x, band.y, band.width, band.height, w, h, (TitleBox::eAnchor)C.titleAnchor,
+                                          C.titleOffsetX * scale, C.titleOffsetY * scale);
 
-    return {x, y, w, h};
+    return {R.x, R.y, R.w, R.h};
 }
 
 void CHyprWindowDecorator::renderBarTitle(const CBox &band, const float scale)
@@ -575,7 +581,9 @@ void CHyprWindowDecorator::renderBarTitle(const CBox &band, const float scale)
 
     const CHyprColor COLOR = m_bForcedTitleColor.value_or(gPlugin->col_text);
 
-    const Vector2D bufferSize = {TITLEBOX.width, band.height};
+    // The canvas is the box, in BOTH directions: a box shorter than the band must not
+    // render text at full band height (it would be squashed when blitted).
+    const Vector2D bufferSize = {TITLEBOX.width, TITLEBOX.height};
     if (bufferSize.x <= 0 || bufferSize.y <= 0)
         return;
 
@@ -629,12 +637,15 @@ void CHyprWindowDecorator::renderBarTitle(const CBox &band, const float scale)
     int layoutWidth, layoutHeight;
     pango_layout_get_size(layout, &layoutWidth, &layoutHeight);
 
-    // Alignment within the title box (the box itself is already positioned).
-    const std::string &ALIGN = gPlugin->cfg.titleAlign;
+    // Alignment of the text INSIDE the box (the box itself is already positioned).
+    // In box mode it follows the anchor, so `anchor = "centre"` centres both; in fill
+    // mode it is `align`.
     float align = 0.0f;
-    if (ALIGN == "right")
+    if (gPlugin->cfg.titleMode == SConfig::eTitleMode::Box)
+        align = (float)TitleBox::textAlignFor((TitleBox::eAnchor)gPlugin->cfg.titleAnchor);
+    else if (gPlugin->cfg.titleAlign == "right")
         align = 1.0f;
-    else if (ALIGN == "centre")
+    else if (gPlugin->cfg.titleAlign == "centre")
         align = 0.5f;
 
     // Alignment, then the padding, then the text's own nudge.
@@ -1226,11 +1237,11 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
         {
             const double BS = (double)std::max(1, gPlugin->cfg.artScale) * pMonitor->m_scale;
 
-            // Bounds apply to the middle band only; corners keep their pixel size.
+            // The box already has the size the stretch band asked for (titleBoxPlaced
+            // sized it from the art), so the destination IS the grid. Corners keep
+            // their pixel size and only the middle band follows.
             const auto GRID = NinePatch::layout(gPlugin->m_titleBgNPI, gPlugin->m_titleBgSize.x, gPlugin->m_titleBgSize.y,
-                                                TITLEBOX.width, TITLEBOX.height, BS,
-                                                gPlugin->cfg.titleBgStretchMax, -1,
-                                                gPlugin->cfg.titleBgStretchMin, -1);
+                                                TITLEBOX.width, TITLEBOX.height, BS);
 
             Render::GL::CHyprOpenGLImpl::STextureRenderData bgData;
             bgData.a = a;

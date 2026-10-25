@@ -92,6 +92,7 @@ private:
   // max_width caps it. Both the text and its backdrop are derived from this, so they
   // cannot drift apart.
   CBox titleBox(const CBox &band, const float scale) const;
+  CBox titleBoxPlaced(const CBox &band, const float scale) const;
   void renderText(SP<Render::ITexture> out, const std::string &text, const CHyprColor &color, const Vector2D &bufferSize, const float scale, const int fontSize);
   bool renderBarButtons(const Vector2D &bufferSize, const float scale);
   void renderBarButtonsText(CBox *barBox, const float scale, const float a);
