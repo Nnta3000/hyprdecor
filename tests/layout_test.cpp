@@ -513,8 +513,46 @@ static void testMarginsAndOffsets()
     }
 }
 
+// A margin must change the title's RECTANGLE, not just its pixels. The renderer caches
+// the text texture by box size, so a margin that leaves the size unchanged is invisible.
+static void testTitleMarginMovesBox()
+{
+    header("title: left/right margins change the rectangle");
+
+    const auto M = orangeFrame();
+
+    const auto BOX = [&](double ml, double mr) {
+        Layout::SItemSpec t;
+        t.id = 0; t.kind = Layout::eItemKind::Title; t.fill = true; t.weight = 1;
+        t.marginLeft = ml; t.marginRight = mr;
+        auto R = Layout::compute(M, {t});
+        return R.items[0].rect;
+    };
+
+    const auto A = BOX(0, 0);
+    const auto B = BOX(20, 0);
+    const auto C = BOX(0, 20);
+    const auto D = BOX(20, 20);
+
+    CHECK(B.x == A.x + 20, "margin.left moves the box right: %.0f -> %.0f", A.x, B.x);
+    CHECK(B.w == A.w - 20, "and makes it narrower: %.0f -> %.0f", A.w, B.w);
+    CHECK(C.w == A.w - 20, "margin.right narrows the box: %.0f -> %.0f", A.w, C.w);
+    // With no end group there is nothing to pin the right edge, so a right margin
+    // narrows from the right: the box SHORTENS rather than sliding.
+    CHECK(C.x == A.x, "margin.right leaves the start alone: %.0f -> %.0f", A.x, C.x);
+    CHECK(std::abs((C.x + C.w) - (A.x + A.w - 20)) < 0.001, "and pulls the right edge in by the margin");
+    CHECK(D.w == A.w - 40, "both margins subtract: %.0f -> %.0f", A.w, D.w);
+    CHECK(D.x == A.x + 20, "and the left one still moves it");
+
+    // The SIZE must differ whenever a margin differs, or a size-keyed texture cache
+    // cannot notice the change.
+    CHECK(B.w != A.w && C.w != A.w && D.w != A.w, "every margin change alters the box size");
+    CHECK(B.x != A.x, "a left margin alters the box position");
+}
+
 int main()
 {
+    testTitleMarginMovesBox();
     testMarginsAndOffsets();
     testEndIndependent();
     testGap();

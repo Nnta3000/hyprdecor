@@ -793,10 +793,13 @@ void CHyprWindowDecorator::renderBarTitle(const CBox &band, const float scale)
     // titleBox() is LOGICAL; the canvas is device pixels, so this is the one place the
     // monitor scale is applied. The band comes in device-scaled (topBarBox), so recover
     // the logical band by dividing it out.
+    // titleBox() works in DECORATION-LOCAL logical px, so the canvas size comes straight
+    // from it. Its origin is not needed here: the texture is blitted later at the box
+    // position by renderPass, so this function only renders pixels.
     const double M       = scale > 0 ? scale : 1.0;
     const CBox   LOGBAND = {band.x / M, band.y / M, band.width / M, band.height / M};
     const CBox   LOGBOX  = titleBox(LOGBAND, scale);
-    const CBox   TITLEBOX{LOGBOX.x * M, LOGBOX.y * M, LOGBOX.w * M, LOGBOX.h * M};
+    const CBox   TITLEBOX{0, 0, LOGBOX.w * M, LOGBOX.h * M};
 
     // No room to draw anything: leave the texture empty rather than rendering text that
     // would spill outside the box.
@@ -1405,7 +1408,12 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     }
 
     // render title
-    const Vector2D TEXTWANT{(double)topBarBox.width, (double)topBarBox.height};
+    //
+    // The cache key is the TITLE BOX, not the band. Keying on the band meant that
+    // anything which moved or resized the box without changing the band -- a margin, for
+    // instance -- reused the previous text texture, so the box moved and the pixels did
+    // not. TITLEBOX is already in device px, matching the texture size.
+    const Vector2D TEXTWANT{(double)TITLEBOX.width, (double)TITLEBOX.height};
 
     if (gPlugin->decoration_title_enabled &&
         (m_szLastTitle != PWINDOW->m_title || m_bWindowSizeChanged || m_pTextTex->m_texID == 0 || m_bTitleColorChanged || m_pTextTex->m_size != TEXTWANT))
