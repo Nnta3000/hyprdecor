@@ -132,10 +132,18 @@ namespace NinePatch {
     //    0         : no middle at all, only the fixed corners/edges are drawn
     //    N         : the middle may grow to N * scale, and no further
     //
+    // `minMiddleW/H` are a floor on the same band, also in source pixels:
+    //
+    //   -1 or less : no floor
+    //    0         : no floor (a zero-sized middle is allowed when space runs out)
+    //    N         : the middle is at least N * scale, overflowing its neighbours if
+    //                they leave less room. The pixel size never changes to fit.
+    //
     // `destW/destH` is the space available; the returned grid may be smaller than it
-    // when a cap applies. Callers must draw at the returned size, not at dest.
+    // when a cap applies, or larger when a floor applies. Callers must draw at the
+    // returned size, not at dest.
     inline SLayout layout(const SNinePatchInfo &info, double srcW, double srcH, double destW, double destH, double scale,
-                          double maxMiddleW = -1, double maxMiddleH = -1)
+                          double maxMiddleW = -1, double maxMiddleH = -1, double minMiddleW = -1, double minMiddleH = -1)
     {
         SLayout l{};
 
@@ -177,6 +185,13 @@ namespace NinePatch {
             middleW = std::min(middleW, maxMiddleW * scale);
         if (maxMiddleH >= 0)
             middleH = std::min(middleH, maxMiddleH * scale);
+
+        // Floor: an explicit minimum wins over the available space, so the frame
+        // overflows its neighbours instead of collapsing. Pixel size is untouched.
+        if (minMiddleW > 0)
+            middleW = std::max(middleW, minMiddleW * scale);
+        if (minMiddleH > 0)
+            middleH = std::max(middleH, minMiddleH * scale);
 
         // Degraded is now purely informational: the destination is smaller than the
         // fixed art, so the frame overflows and the caller should clip it. We no longer

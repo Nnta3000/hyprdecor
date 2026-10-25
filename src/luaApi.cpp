@@ -322,6 +322,10 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             NEXT.titleMaxWidth = numberField(L, TITLE, "max_width", -1);
         if (hasField(L, TITLE, "max_height"))
             NEXT.titleMaxHeight = numberField(L, TITLE, "max_height", -1);
+        if (hasField(L, TITLE, "min_width"))
+            NEXT.titleMinWidth = numberField(L, TITLE, "min_width", -1);
+        if (hasField(L, TITLE, "min_height"))
+            NEXT.titleMinHeight = numberField(L, TITLE, "min_height", -1);
         if (hasField(L, TITLE, "ellipsize"))
             NEXT.titleEllipsize = boolField(L, TITLE, "ellipsize", true);
 
@@ -337,6 +341,7 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             NEXT.titleBgEnabled = boolField(L, BG, "enabled", true);
             NEXT.titleBgPath    = *BGIMAGE;
             NEXT.titleBgStretchMax = hasField(L, BG, "max_stretch") ? numberField(L, BG, "max_stretch", -1) : -1;
+            NEXT.titleBgStretchMin = hasField(L, BG, "min_stretch") ? numberField(L, BG, "min_stretch", -1) : -1;
 
             lua_pop(L, 1);
         }
@@ -470,6 +475,8 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
 
             if (hasField(L, ITEM, "max_stretch"))
                 E.maxStretch = numberField(L, ITEM, "max_stretch", -1);
+            if (hasField(L, ITEM, "min_stretch"))
+                E.minStretch = numberField(L, ITEM, "min_stretch", -1);
 
             E.offsetX = numberField(L, ITEM, "offset_x", 0);
             E.offsetY = numberField(L, ITEM, "offset_y", 0);

@@ -507,18 +507,40 @@ CBox CHyprWindowDecorator::titleBox(const CBox &band, const float scale) const
     if (AVAILABLE <= 0)
         return {band.x + leftEdge, band.y, 0, 0};
 
-    double w = AVAILABLE;
-
-    // Optional caps; the box is then positioned inside the free span by `align`.
-    if (C.titleMaxWidth > 0)
-        w = std::min(w, C.titleMaxWidth * scale);
-
-    double h = std::max(0.0, band.height - (C.titleGapTop + C.titleGapBottom) * scale);
-    if (C.titleMaxHeight > 0)
-        h = std::min(h, C.titleMaxHeight * scale);
-
-    if (h <= 0)
+    const double BANDH = std::max(0.0, band.height - (C.titleGapTop + C.titleGapBottom) * scale);
+    if (BANDH <= 0)
         return {band.x, band.y, 0, 0};
+
+    double w = AVAILABLE;
+    double h = BANDH;
+
+    // With a backdrop the box IS the backdrop: its size is derived from the nine-patch
+    // band, so a bound on the stretch can never squash the art's pixels.
+    if (C.titleBgEnabled && gPlugin->m_pTitleBgTex && gPlugin->m_pTitleBgTex->m_texID != 0 && gPlugin->m_titleBgNPI.defined)
+    {
+        const double BS = (double)std::max(1, gPlugin->cfg.artScale) * scale;
+
+        const auto G = NinePatch::layout(gPlugin->m_titleBgNPI, gPlugin->m_titleBgSize.x, gPlugin->m_titleBgSize.y, AVAILABLE, BANDH, BS,
+                                         C.titleBgStretchMax, -1, C.titleBgStretchMin, -1);
+
+        w = std::min(AVAILABLE, NinePatch::layoutWidth(G));
+        h = std::min(BANDH, NinePatch::layoutHeight(G));
+    }
+    else
+    {
+        // Without a backdrop the box is just a span of the band; bounds apply directly.
+        if (C.titleMaxWidth > 0)
+            w = std::min(w, C.titleMaxWidth * scale);
+        if (C.titleMinWidth > 0)
+            w = std::max(w, C.titleMinWidth * scale);
+        if (C.titleMaxHeight > 0)
+            h = std::min(h, C.titleMaxHeight * scale);
+        if (C.titleMinHeight > 0)
+            h = std::max(h, C.titleMinHeight * scale);
+
+        w = std::min(w, AVAILABLE);
+        h = std::min(h, BANDH);
+    }
 
     double x = band.x + leftEdge + C.titleOffsetX * scale;
     if (C.titleAlign == "right")
@@ -1040,12 +1062,14 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                     if (!element.cfg.stretchVertical)
                         H = (element.npi.border[1] + element.npi.border[3]) * DEV;
 
-                    // max_stretch caps the MIDDLE band, in source px, so the corners keep
-                    // their exact pixel size. -1 = no cap, 0 = corners only.
-                    const double CAPW = element.cfg.maxStretch.value_or(-1);
-                    const double CAPH = element.cfg.stretchVertical ? CAPW : 0;
+                    // min/max_stretch bound the MIDDLE band, in source px, so the corners
+                    // keep their exact pixel size: -1 = unset, 0 = corners only, N = N px.
+                    const double MAXW = element.cfg.maxStretch.value_or(-1);
+                    const double MINW = element.cfg.minStretch.value_or(-1);
+                    const double MAXH = element.cfg.stretchVertical ? MAXW : 0;
+                    const double MINH = element.cfg.stretchVertical ? MINW : 0;
 
-                    const auto GRID = NinePatch::layout(element.npi, SRCW, SRCH, W, H, DEV, CAPW, CAPH);
+                    const auto GRID = NinePatch::layout(element.npi, SRCW, SRCH, W, H, DEV, MAXW, MAXH, MINW, MINH);
 
                     // Draw the 9 cells; for horizontal-only stretch we collapse the
                     // vertical middle band by using the same destination rows.
@@ -1202,11 +1226,11 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
         {
             const double BS = (double)std::max(1, gPlugin->cfg.artScale) * pMonitor->m_scale;
 
-            // Cap applies to the middle band only; corners keep their pixel size.
-            const double CAPW = gPlugin->cfg.titleBgStretchMax >= 0 ? gPlugin->cfg.titleBgStretchMax : -1;
-
+            // Bounds apply to the middle band only; corners keep their pixel size.
             const auto GRID = NinePatch::layout(gPlugin->m_titleBgNPI, gPlugin->m_titleBgSize.x, gPlugin->m_titleBgSize.y,
-                                                TITLEBOX.width, TITLEBOX.height, BS, CAPW, 0);
+                                                TITLEBOX.width, TITLEBOX.height, BS,
+                                                gPlugin->cfg.titleBgStretchMax, -1,
+                                                gPlugin->cfg.titleBgStretchMin, -1);
 
             Render::GL::CHyprOpenGLImpl::STextureRenderData bgData;
             bgData.a = a;
