@@ -437,16 +437,14 @@ void CHyprWindowDecorator::runElementAction(const size_t index)
 
         case SElement::eAction::Close: RUN("closewindow", "activewindow"); return;
 
-        case SElement::eAction::Maximize:
-            // Hyprland has no separate "maximise": maximise is fullscreen mode 0, which
-            // keeps the bars. The dispatcher takes exactly two arguments -- state and the
-            // "already internal" flag -- and NO window: it acts on the active window,
-            // which the press handler has already focused. Passing a third argument made
-            // the whole call a silent no-op.
-            RUN("fullscreenstate", "0,0");
-            return;
+        // Fullscreen::eFullscreenMode is NONE=0, MAXIMIZED=1, FULLSCREEN=2. Using 0 for
+        // "maximise" actually means "leave fullscreen", and 1 means "maximise" -- which
+        // is why the first attempt appeared to do nothing and the fullscreen button
+        // maximised instead. Two arguments only: the state, then the "already internal"
+        // flag. It acts on the active window, which the press handler has focused.
+        case SElement::eAction::Maximize: RUN("fullscreenstate", "1,0"); return;
 
-        case SElement::eAction::Fullscreen: RUN("fullscreenstate", "1,0"); return;
+        case SElement::eAction::Fullscreen: RUN("fullscreenstate", "2,0"); return;
 
         case SElement::eAction::Pin:
             // Pinning a TILED window makes Hyprland complain and does nothing useful, so
