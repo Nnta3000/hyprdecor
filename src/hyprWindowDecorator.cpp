@@ -231,6 +231,14 @@ void CHyprWindowDecorator::onMouseMove([[maybe_unused]] Vector2D coords)
 
     updateElementHover();
 
+    if (m_iGestureElement != -1)
+    {
+        const int GESTURE = m_iGestureElement;
+        m_iGestureElement = -1;
+        runElementAction((size_t)GESTURE);
+        return;
+    }
+
     if (!gPlugin->m_vButtons.empty())
         damageOnButtonHover();
 
@@ -315,11 +323,11 @@ void CHyprWindowDecorator::handleDownEvent(Event::SCallbackInfo &info, std::opti
         info.cancelled = true;
         damageEntire();
 
-        // A gesture action must START on press: Hyprland's mouse grab requires the button
-        // to be down, and our swallow means only we know it is. Firing these on release
-        // did nothing, which is exactly what was reported.
+        // Arm a gesture action; it starts on the first mouse MOVE, not here. See
+        // m_iGestureElement: calling the mouse dispatcher during the press finds no
+        // button-down, because this handler just swallowed it.
         if ((size_t)m_iPressedElement < gPlugin->m_vElements.size() && gPlugin->m_vElements[m_iPressedElement].cfg.isGesture())
-            runElementAction((size_t)m_iPressedElement);
+            m_iGestureElement = m_iPressedElement;
 
         return;
     }
@@ -365,6 +373,9 @@ void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
     m_bDragPending = false;
     m_bTouchEv = false;
     m_touchId = 0;
+
+    // A gesture that never saw a mouse move was a plain click: nothing to do.
+    m_iGestureElement = -1;
 
     if (m_iPressedElement != -1)
     {
