@@ -121,6 +121,12 @@ struct SItemSpec
     // Nine-patch markers, used when `ninepatch` is set.
     SNinePatchInfo npi;
 
+    // Set when `visible_when` does not match the current window state. The item still
+    // takes flow space unless `collapse` is set, so hiding something never moves its
+    // neighbours.
+    bool         hidden = false;
+    bool         collapse = false;
+
 };
 
 struct SResolvedItem
@@ -137,6 +143,9 @@ struct SResolvedItem
     double     artScale = 1;
     // True when the nine-patch had less room than its fixed corners need.
     bool       overflowed = false;
+    // `visible_when` did not match. The item KEEPS its slot, so nothing else moves; it
+    // is simply not drawn and not hit-testable.
+    bool       hidden = false;
 };
 
 struct SResult
@@ -267,8 +276,15 @@ inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vect
     double startFixed = 0, endFixed = 0, startMargins = 0, endMargins = 0, totalWeight = 0;
     int    startCount = 0, endCount = 0;
 
+    // A hidden item that opted into `collapse` releases its slot entirely, so it must be
+    // absent from the measurement as well as the placement.
+    const auto PARTICIPATES = [](const SItemSpec &s) { return !(s.hidden && s.collapse); };
+
     for (const auto &s : specs)
     {
+        if (!PARTICIPATES(s))
+            continue;
+
         // A filler's margins are NOT fixed cost: they are taken out of its own share
         // below, so `margin` narrows a filler instead of letting it overrun its
         // neighbours. A fixed item's margins are real space it consumes.
@@ -314,11 +330,11 @@ inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vect
 
     std::vector<const SItemSpec *> WALK;
     for (const auto &s : specs)
-        if (!(s.align == eAlign::End && !s.fill))
+        if (PARTICIPATES(s) && !(s.align == eAlign::End && !s.fill))
             WALK.push_back(&s);
 
     for (auto it = specs.rbegin(); it != specs.rend(); ++it)
-        if (it->align == eAlign::End && !it->fill)
+        if (PARTICIPATES(*it) && it->align == eAlign::End && !it->fill)
             WALK.push_back(&*it);
 
     for (const auto *sp : WALK)
@@ -428,7 +444,8 @@ inline void layoutRegion(const SFrameMetrics &m, eRegion region, const std::vect
         else
             item.rect = {crossPos, mainPos, CROSS_CLAMPED, extent};
 
-        item.draw = item.rect;
+        item.draw   = item.rect;
+        item.hidden = s.hidden;
 
         // A nine-patch item may be capped in the middle, so the drawn extent can be
         // smaller than the rectangle it was given. Resolve that here, once, instead of

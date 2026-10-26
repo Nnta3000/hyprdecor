@@ -4,6 +4,7 @@
 
 #include "plugin.hpp"
 #include "luaRead.hpp"
+#include "itemstate.hpp"
 
 extern "C" {
 #include <lua.h>
@@ -614,6 +615,43 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
                 else
                     return raise(L, "hyprdecor.setup: 'defaults.elements[{}].stretch' must be \"horizontal\" or \"both\"", i);
             }
+
+            if (hasField(L, ITEM, "visible_when"))
+            {
+                if (!tableField(L, ITEM, "visible_when", std::format("defaults.elements[{}].visible_when", i).c_str()))
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].visible_when' must be a table", i);
+
+                // Absolute index: tableField pushed the table and the loop reads fields
+                // out of it, so a relative -1 would drift.
+                const int WHEN = lua_gettop(L);
+
+                // Each value must be a boolean. A wrong type is an error, never a silent
+                // "false", because that would hide the item for no visible reason.
+                static const std::pair<const char *, std::optional<bool> SElement::*> KEYS[] = {
+                    {"focused", &SElement::whenFocused},       {"floating", &SElement::whenFloating},
+                    {"maximised", &SElement::whenMaximised},   {"fullscreen", &SElement::whenFullscreen},
+                    {"pinned", &SElement::whenPinned},
+                };
+
+                for (const auto &[NAME, MEMBER] : KEYS)
+                {
+                    if (!hasField(L, WHEN, NAME))
+                        continue;
+                    lua_getfield(L, WHEN, NAME);
+                    if (!lua_isboolean(L, -1))
+                    {
+                        lua_pop(L, 1);
+                        return raise(L, "hyprdecor.setup: 'defaults.elements[{}].visible_when.{}' must be a boolean", i, NAME);
+                    }
+                    E.*MEMBER = lua_toboolean(L, -1) != 0;
+                    lua_pop(L, 1);
+                }
+
+                lua_pop(L, 1);
+            }
+
+            if (hasField(L, ITEM, "collapse"))
+                E.collapse = boolField(L, ITEM, "collapse", false);
 
             if (hasField(L, ITEM, "interactive"))
                 E.interactive = boolField(L, ITEM, "interactive", false);

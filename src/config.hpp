@@ -9,6 +9,8 @@
 // Everything here is filled by hl.plugin.hyprdecor.setup(); the struct itself starts at
 // documented defaults, so an unset field is always a deliberate value, never garbage.
 
+#include "itemstate.hpp"
+
 #include <optional>
 #include <string>
 #include <vector>
@@ -105,6 +107,16 @@ struct SElement
     };
 
     eAction action = eAction::None;
+
+    // `visible_when` is a FILTER: every declared condition must match. An unset field
+    // means "don't care", never "must be false". A hidden item keeps its slot, so
+    // nothing shifts when a window is pinned or focused; `collapse` releases the slot.
+    std::optional<bool> whenFocused;
+    std::optional<bool> whenFloating;
+    std::optional<bool> whenMaximised;
+    std::optional<bool> whenFullscreen;
+    std::optional<bool> whenPinned;
+    bool                collapse = false;
 
     // Flow, inside the element's region. `fill` makes the element share the leftover
     // space by `weight`; `align` places it on the main axis, `crossAlign` across it.

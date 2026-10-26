@@ -31,6 +31,8 @@
 #include "compat.hpp"
 #include "util.hpp"
 #include "titlebox.hpp"
+#include "itemstate.hpp"
+#include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
 
 CHyprWindowDecorator::CHyprWindowDecorator(PHLWINDOW pWindow) : IHyprWindowDecoration(pWindow)
 {
@@ -695,6 +697,7 @@ std::vector<Layout::SItemSpec> CHyprWindowDecorator::itemSpecs()
         s.minStretch      = ELEMENT.cfg.minStretch.value_or(-1);
         s.maxStretch      = ELEMENT.cfg.maxStretch.value_or(-1);
         s.npi             = ELEMENT.npi;
+        s.collapse        = ELEMENT.cfg.collapse;
         s.fill            = ELEMENT.cfg.fill;
         s.weight          = ELEMENT.cfg.weight;
         s.crossAlign      = ELEMENT.cfg.crossAlign == "start" ? Layout::eAlign::Start : ELEMENT.cfg.crossAlign == "end" ? Layout::eAlign::End : Layout::eAlign::Centre;
@@ -714,11 +717,36 @@ Layout::SResult CHyprWindowDecorator::resolveLayout()
     // because that is the band it lives in.
     const auto M = frameMetrics();
 
+    // Window state for `visible_when`, read ONCE per layout so every item sees the same
+    // snapshot. A hidden item keeps its slot unless `collapse` is set.
+    ItemState::SWindowState STATE;
+    if (const auto W = m_pWindow.lock())
+    {
+        STATE.focused  = W == Desktop::focusState()->window();
+        STATE.floating = W->m_isFloating;
+        STATE.pinned   = W->m_pinned;
+
+        // isFullscreen takes the mode; MAXIMIZED and FULLSCREEN are distinct states, and
+        // a pinned window can report neither even when the dispatcher "succeeded".
+        const auto FS = Fullscreen::controller()->getFullscreenModes(W);
+        STATE.maximised  = FS.internal == Fullscreen::FSMODE_MAXIMIZED || FS.internal == Fullscreen::FSMODE_FULLSCREEN;
+        STATE.fullscreen = FS.internal == Fullscreen::FSMODE_FULLSCREEN;
+    }
+
     std::vector<Layout::SItemSpec> top, bottom, left, right;
     for (auto &spec : itemSpecs())
     {
         if ((size_t)spec.id >= gPlugin->m_vElements.size())
             continue;
+
+        const auto &CFG = gPlugin->m_vElements[spec.id].cfg;
+        ItemState::SVisibleWhen WHEN;
+        WHEN.focused    = CFG.whenFocused;
+        WHEN.floating   = CFG.whenFloating;
+        WHEN.maximised  = CFG.whenMaximised;
+        WHEN.fullscreen = CFG.whenFullscreen;
+        WHEN.pinned     = CFG.whenPinned;
+        spec.hidden = WHEN.any() && !ItemState::visible(WHEN, STATE);
 
         switch (gPlugin->m_vElements[spec.id].cfg.region)
         {
@@ -766,6 +794,10 @@ int CHyprWindowDecorator::elementIndexAt(const Vector2D &local)
     {
         // Neither the title nor a spacer nor text has an action, so none are hit-testable.
         if (item.kind == Layout::eItemKind::Title || item.kind == Layout::eItemKind::Spacer || item.kind == Layout::eItemKind::Text)
+            continue;
+
+        // A hidden item is not clickable, even though it still holds its slot.
+        if (item.hidden)
             continue;
 
         if (item.id < 0 || (size_t)item.id >= gPlugin->m_vElements.size())
@@ -861,6 +893,20 @@ const SElementTexture &CHyprWindowDecorator::elementTexture(const size_t index, 
 
     if (ELEMENT.cfg.interactive && m_iHoveredElement == (int)index)
         return ELEMENT.hovered;
+
+    // `_on` outranks the plain focused art: the toggle's state matters more than the
+    // fact that the window is focused. Spec precedence is
+    // pressed > hovered > _on > unfocused > active.
+    if (const auto W = m_pWindow.lock())
+    {
+        const bool ISON = (ELEMENT.cfg.action == SElement::eAction::Pin && W->m_pinned) ||
+                          (ELEMENT.cfg.action == SElement::eAction::Float && W->m_isFloating) ||
+                          (ELEMENT.cfg.action == SElement::eAction::Fullscreen &&
+                           Fullscreen::controller()->getFullscreenModes(W).internal == Fullscreen::FSMODE_FULLSCREEN);
+
+        if (ISON && ELEMENT.on.tex && ELEMENT.on.tex->m_texID != 0)
+            return ELEMENT.on;
+    }
 
     if (!focus)
         return ELEMENT.unfocused;
@@ -1142,6 +1188,22 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
         damageEntire();
     }
 
+    // `visible_when` depends on floating / pinned / fullscreen too, and none of those
+    // damage the decoration on their own: an item would keep its old visibility until
+    // something else happened to repaint. Compare a cheap snapshot instead.
+    {
+        const auto W = m_pWindow.lock();
+        const auto FS = Fullscreen::controller()->getFullscreenModes(W);
+        const int  SNAP = (W->m_isFloating ? 1 : 0) | (W->m_pinned ? 2 : 0) | (FS.internal != Fullscreen::FSMODE_NONE ? 4 : 0) |
+                         (FS.internal == Fullscreen::FSMODE_FULLSCREEN ? 8 : 0);
+
+        if (SNAP != m_iLastStateSnap)
+        {
+            m_iLastStateSnap = SNAP;
+            damageEntire();
+        }
+    }
+
     const CHyprColor DEST_COLOR = m_bForcedBarColor.value_or(gPlugin->bar_color);
     if (DEST_COLOR != m_cRealBarColor->goal())
         *m_cRealBarColor = DEST_COLOR;
@@ -1342,6 +1404,10 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
             // rendered by renderBarTitle, a spacer draws nothing, and text is not
             // implemented yet (C5 templates).
             if (item.kind == Layout::eItemKind::Title || item.kind == Layout::eItemKind::Spacer || item.kind == Layout::eItemKind::Text)
+                continue;
+
+            // Hidden by `visible_when`: it keeps its slot but is not painted.
+            if (item.hidden)
                 continue;
 
             if (item.id < 0 || (size_t)item.id >= gPlugin->m_vElements.size())
