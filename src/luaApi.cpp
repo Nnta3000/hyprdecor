@@ -3,6 +3,7 @@
 #include <hyprland/src/plugins/PluginAPI.hpp>
 
 #include "plugin.hpp"
+#include "luaRead.hpp"
 
 extern "C" {
 #include <lua.h>
@@ -179,58 +180,13 @@ static bool readThickness(lua_State *L, int borderIdx, SFrameThickness &out)
     return readThicknessNamed(L, borderIdx, "thickness", out);
 }
 
-// Reads { left, top, right, bottom } where anything, negatives included, is meaningful.
-// A separate reader because readThicknessNamed uses -1 as the "unset" sentinel, which
-// would make a legitimate -1 gap indistinguishable from an absent one. Thickness must
-// stay non-negative, so it keeps the strict reader.
-struct SSignedSides
-{
-    std::optional<double> left, top, right, bottom;
-};
+// Spacing/margin reading lives in luaRead.hpp, which has no Hyprland dependency so the
+// tests exercise the same code. `SSided` is alias'd here to keep the call sites short.
+using SSignedSides = LuaRead::SSided;
 
 static bool readSignedSides(lua_State *L, int borderIdx, const char *key, SSignedSides &out)
 {
-    lua_getfield(L, borderIdx, key);
-    const int TYPE = lua_type(L, -1);
-
-    if (TYPE == LUA_TNUMBER)
-    {
-        const double V = lua_tonumber(L, -1);
-        lua_pop(L, 1);
-        out = {V, V, V, V};
-        return true;
-    }
-
-    if (TYPE == LUA_TTABLE)
-    {
-        const int IDX = lua_absindex(L, -1);
-        const auto SIDE = [&](const char *name) -> std::optional<double> {
-            lua_getfield(L, IDX, name);
-            if (lua_isnil(L, -1))
-            {
-                lua_pop(L, 1);
-                return std::nullopt;
-            }
-            if (!lua_isnumber(L, -1))
-            {
-                lua_pop(L, 1);
-                return std::nullopt;
-            }
-            const double V = lua_tonumber(L, -1);
-            lua_pop(L, 1);
-            return V;
-        };
-
-        out.left   = SIDE("left");
-        out.top    = SIDE("top");
-        out.right  = SIDE("right");
-        out.bottom = SIDE("bottom");
-        lua_pop(L, 1);
-        return out.left || out.top || out.right || out.bottom;
-    }
-
-    lua_pop(L, 1);
-    return false;
+    return LuaRead::readSided(L, borderIdx, key, out);
 }
 
 // hl.plugin.hyprdecor.setup({ defaults = { border = {...}, title = {...} } })
@@ -423,13 +379,6 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             NEXT.textColor = (uint64_t)numberField(L, TITLE, "color", 0xFFFFFFFF);
         if (hasField(L, TITLE, "inset"))
             NEXT.titleInset = numberField(L, TITLE, "inset", 0);
-        // `gap` accepts a number (all four) or { left, top, right, bottom }.
-        // The title has no gap of its own: it is a flow item, spaced by `margin` like
-        // every other item. `gap` is rejected by name so an old config fails loudly
-        // rather than being silently ignored.
-        if (hasField(L, TITLE, "gap"))
-            return raise(L, "hyprdecor.setup: 'defaults.title.gap' was removed; use 'defaults.title.margin' "
-                            "(the title is a flow item now)");
 
         if (hasField(L, TITLE, "cross_align"))
         {
@@ -455,6 +404,10 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
                 NEXT.titleMarginTop = *MARGIN.top;
             if (MARGIN.bottom)
                 NEXT.titleMarginBottom = *MARGIN.bottom;
+            if (MARGIN.left)
+                NEXT.titleMarginLeft = *MARGIN.left;
+            if (MARGIN.right)
+                NEXT.titleMarginRight = *MARGIN.right;
         }
         if (hasField(L, TITLE, "text_offset_x"))
             NEXT.textOffsetX = numberField(L, TITLE, "text_offset_x", 0);
