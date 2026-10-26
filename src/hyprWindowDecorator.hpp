@@ -118,6 +118,9 @@ private:
   // Runs a clicked element's action, if it has one.
   void runElementAction(size_t index);
 
+  // Snapshot of floating/pinned/fullscreen, so `visible_when` repaints when it changes.
+  int m_iLastStateSnap = -1;
+
   int m_iHoveredElement = -1;
   int m_iPressedElement = -1;
   void renderText(SP<Render::ITexture> out, const std::string &text, const CHyprColor &color, const Vector2D &bufferSize, const float scale, const int fontSize);

@@ -244,6 +244,12 @@ void CPlugin::loadAllTextures()
             // Non-interactive elements still get the unfocused swap, which is driven by
             // the window's focus rather than the pointer.
             LOADSTATE(element.unfocused, "_unfocused");
+
+            // `_on` is the "toggle is active" art: pin while pinned, float while
+            // floating. Loaded for any element, because an element without an action can
+            // still be a state indicator.
+            LOADSTATE(element.on, "_on");
+
             if (element.cfg.interactive)
             {
                 LOADSTATE(element.hovered, "_hovered");

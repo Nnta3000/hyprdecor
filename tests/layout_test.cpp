@@ -5,6 +5,7 @@
 // Layout is a pure function, so every expectation here is an exact rectangle.
 
 #include "layout.hpp"
+#include "itemstate.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -591,8 +592,110 @@ static void testSpacerAndText()
     }
 }
 
+// `visible_when` is a FILTER, not an expression: every declared condition must hold.
+static void testVisibleWhen()
+{
+    header("visible_when: hides only when a declared condition fails");
+
+    ItemState::SWindowState S;
+    S.focused = true;
+    S.floating = false;
+    S.pinned = false;
+
+    // No conditions: always visible, even though nothing matches.
+    {
+        ItemState::SVisibleWhen W;
+        CHECK(ItemState::visible(W, S), "no conditions means always visible");
+    }
+
+    // One condition that holds.
+    {
+        ItemState::SVisibleWhen W;
+        W.focused = true;
+        CHECK(ItemState::visible(W, S), "focused = true matches a focused window");
+    }
+
+    // One condition that fails.
+    {
+        ItemState::SVisibleWhen W;
+        W.pinned = true;
+        CHECK(!ItemState::visible(W, S), "pinned = true hides an unpinned window");
+    }
+
+    // An UNSET field must not constrain: this is the difference between "don't care"
+    // and "must be false", and getting it wrong hides items everywhere.
+    {
+        ItemState::SVisibleWhen W;
+        W.pinned = true;
+        // floating is unset, so a tiled window is fine.
+        CHECK(!ItemState::visible(W, S), "the pinned condition alone decides");
+        S.pinned = true;
+        CHECK(ItemState::visible(W, S), "unset floating must not block a pinned window");
+    }
+
+    // False is a real requirement, not "don't care".
+    {
+        ItemState::SVisibleWhen W;
+        W.floating = false;
+        CHECK(ItemState::visible(W, S), "floating = false matches a tiled window");
+    }
+
+    // All conditions must hold together. (S has pinned = true by now, from the test
+    // above, so a floating condition is the one that fails.)
+    {
+        ItemState::SVisibleWhen W;
+        W.focused = true;
+        W.floating = false;
+        CHECK(ItemState::visible(W, S), "both conditions hold for a focused, tiled window");
+        W.focused = false;
+        CHECK(!ItemState::visible(W, S), "one failing condition hides the item");
+    }
+}
+
+// A hidden item KEEPS its slot; collapse releases it. This is what stops the layout
+// jumping when a window is pinned or focused.
+static void testHiddenKeepsSlot()
+{
+    header("layers: hidden keeps its slot unless collapse is set");
+
+    const auto M = orangeFrame();
+
+    const auto THREE = [&](bool hideMiddle, bool collapse) {
+        std::vector<Layout::SItemSpec> specs;
+        specs.push_back(imageItem(0, 10, 10, Layout::eAlign::Start, 0));
+
+        auto mid = imageItem(1, 20, 10, Layout::eAlign::Start, 0);
+        mid.hidden = hideMiddle;
+        mid.collapse = collapse;
+        specs.push_back(mid);
+
+        specs.push_back(imageItem(2, 10, 10, Layout::eAlign::Start, 0));
+
+        auto R = Layout::compute(M, specs);
+        return R.items;
+    };
+
+    const auto VISIBLE = THREE(false, false);
+    const auto HIDDEN = THREE(true, false);
+    const auto COLLAPSED = THREE(true, true);
+
+    // The third item must not move when the middle one is merely hidden.
+    CHECK(HIDDEN.size() == 3, "a hidden non-collapsed item keeps its entry");
+
+    const auto &VIS_LAST = VISIBLE[2];
+    const auto &HID_LAST = HIDDEN[2];
+    CHECK(HID_LAST.rect.x == VIS_LAST.rect.x, "the neighbour stays put, got %.0f vs %.0f", HID_LAST.rect.x, VIS_LAST.rect.x);
+
+    // With collapse, it is absent and the neighbour moves back.
+    CHECK(COLLAPSED.size() == 2, "a collapsed item is not laid out at all, got %zu entries", COLLAPSED.size());
+    CHECK(COLLAPSED[1].id == 2, "the surviving neighbour is the third item");
+    CHECK(COLLAPSED[1].rect.x < HID_LAST.rect.x, "collapse pulls the neighbour in, got %.0f vs %.0f", COLLAPSED[1].rect.x, HID_LAST.rect.x);
+}
+
 int main()
 {
+    testVisibleWhen();
+    testHiddenKeepsSlot();
     testSpacerAndText();
     testTitleMarginMovesBox();
     testMarginsAndOffsets();

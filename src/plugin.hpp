@@ -28,7 +28,7 @@ struct SElementTex
 
     // State variants, resolved from cfg.path by suffix. Unset ones share the active
     // texture, so drawing never has to test for null.
-    SElementTexture active, unfocused, hovered, pressed;
+    SElementTexture active, unfocused, hovered, pressed, on;
 
     // What the currently loaded texture was built from, so a settings change forces a
     // reload instead of silently keeping the old pixels.
