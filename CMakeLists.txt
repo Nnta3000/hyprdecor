@@ -55,6 +55,7 @@ if(HYPRDECOR_BUILD_TESTS)
     # ignored). Needs only liblua, which the plugin already links.
     pkg_check_modules(lua_only REQUIRED IMPORTED_TARGET lua5.5)
     add_executable(config_value_test tests/config_value_test.cpp)
+    target_include_directories(config_value_test PRIVATE src)
     target_link_libraries(config_value_test PRIVATE PkgConfig::lua_only)
     target_compile_options(config_value_test PRIVATE -Wall -Wextra)
 endif()
