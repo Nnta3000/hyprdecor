@@ -102,20 +102,9 @@ struct SElement
         Fullscreen,
         Pin,
         Float,
-        Drag,
-        Resize,
     };
 
     eAction action = eAction::None;
-
-    // True for actions that begin a pointer GESTURE rather than firing once. These must
-    // arm on PRESS: Hyprland's `mouse <btn>movewindow` grabs the window only if that
-    // button is currently down, and the decorator swallows the press, so calling them on
-    // release is always too late.
-    bool isGesture() const
-    {
-        return action == eAction::Drag || action == eAction::Resize;
-    }
 
     // Flow, inside the element's region. `fill` makes the element share the leftover
     // space by `weight`; `align` places it on the main axis, `crossAlign` across it.

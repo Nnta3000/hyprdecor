@@ -625,14 +625,13 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
                     return raise(L, "hyprdecor.setup: 'defaults.elements[{}].action' must be a string", i);
                 static const std::map<std::string, SElement::eAction> ACTIONS = {
                     {"close", SElement::eAction::Close},       {"maximize", SElement::eAction::Maximize}, {"fullscreen", SElement::eAction::Fullscreen},
-                    {"pin", SElement::eAction::Pin},           {"float", SElement::eAction::Float},       {"drag", SElement::eAction::Drag},
-                    {"resize", SElement::eAction::Resize},
+                    {"pin", SElement::eAction::Pin},           {"float", SElement::eAction::Float},
                 };
 
                 const auto IT = ACTIONS.find(*ACTION);
                 if (IT == ACTIONS.end())
                     return raise(L, "hyprdecor.setup: 'defaults.elements[{}].action' \"{}\" is not a known action "
-                                    "(close, maximize, fullscreen, pin, float, drag, resize)", i, *ACTION);
+                                    "(close, maximize, fullscreen, pin, float)", i, *ACTION);
 
                 E.action = IT->second;
 

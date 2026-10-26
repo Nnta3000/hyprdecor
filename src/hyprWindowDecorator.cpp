@@ -231,14 +231,6 @@ void CHyprWindowDecorator::onMouseMove([[maybe_unused]] Vector2D coords)
 
     updateElementHover();
 
-    if (m_iGestureElement != -1)
-    {
-        const int GESTURE = m_iGestureElement;
-        m_iGestureElement = -1;
-        runElementAction((size_t)GESTURE);
-        return;
-    }
-
     if (!gPlugin->m_vButtons.empty())
         damageOnButtonHover();
 
@@ -323,12 +315,6 @@ void CHyprWindowDecorator::handleDownEvent(Event::SCallbackInfo &info, std::opti
         info.cancelled = true;
         damageEntire();
 
-        // Arm a gesture action; it starts on the first mouse MOVE, not here. See
-        // m_iGestureElement: calling the mouse dispatcher during the press finds no
-        // button-down, because this handler just swallowed it.
-        if ((size_t)m_iPressedElement < gPlugin->m_vElements.size() && gPlugin->m_vElements[m_iPressedElement].cfg.isGesture())
-            m_iGestureElement = m_iPressedElement;
-
         return;
     }
 
@@ -374,17 +360,12 @@ void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
     m_bTouchEv = false;
     m_touchId = 0;
 
-    // A gesture that never saw a mouse move was a plain click: nothing to do.
-    m_iGestureElement = -1;
-
     if (m_iPressedElement != -1)
     {
         // Fire only if the pointer is STILL over the element that took the press, which
         // is the same rule the legacy buttons use: dragging off cancels.
         const int RELEASED = elementIndexAt(cursorRelativeToBar());
-        const bool ISGESTURE = (size_t)m_iPressedElement < gPlugin->m_vElements.size()
-                                   && gPlugin->m_vElements[m_iPressedElement].cfg.isGesture();
-        if (RELEASED == m_iPressedElement && !ISGESTURE)
+        if (RELEASED == m_iPressedElement)
             runElementAction((size_t)m_iPressedElement);
 
         m_iPressedElement = -1;
@@ -416,8 +397,6 @@ static const char *elementActionName(const SElement::eAction action)
         case SElement::eAction::Fullscreen: return "fullscreen";
         case SElement::eAction::Pin: return "pin";
         case SElement::eAction::Float: return "float";
-        case SElement::eAction::Drag: return "drag";
-        case SElement::eAction::Resize: return "resize";
         default: return "none";
     }
 }
@@ -476,19 +455,6 @@ void CHyprWindowDecorator::runElementAction(const size_t index)
 
         case SElement::eAction::Float: RUN("togglefloating", "activewindow"); return;
 
-        case SElement::eAction::Drag:
-            // Same sequence the title-bar drag uses: float it, pin it so workspaces can
-            // change mid-drag, then hand the move to Hyprland. Called on PRESS, while the
-            // button is still down, which is the only moment the grab can attach.
-            RUN("setfloating", "activewindow");
-            RUN("pin", "activewindow");
-            RUN("mouse", "1movewindow");
-            return;
-
-        case SElement::eAction::Resize:
-            // Hyprland's resize mode: it tracks the pointer until the button is released.
-            RUN("mouse", "1resizewindow");
-            return;
     }
 }
 
