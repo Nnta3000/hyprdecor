@@ -504,10 +504,46 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
 
             SElement E;
 
-            const auto IMAGE = stringField(L, ITEM, "image");
-            if (!IMAGE || IMAGE->empty())
-                return raise(L, "hyprdecor.setup: 'defaults.elements[{}].image' is required", i);
-            E.path = *IMAGE;
+            // `type` defaults to "image" so every existing element keeps working.
+            if (hasField(L, ITEM, "type"))
+            {
+                const auto TYPE = stringField(L, ITEM, "type");
+                if (!TYPE)
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].type' must be a string", i);
+                if (*TYPE == "image")
+                    E.type = SElement::eType::Image;
+                else if (*TYPE == "button")
+                    E.type = SElement::eType::Button;
+                else if (*TYPE == "spacer")
+                    E.type = SElement::eType::Spacer;
+                else if (*TYPE == "text")
+                    E.type = SElement::eType::Text;
+                else
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].type' must be image, button, spacer or text (got \"{}\")", i,
+                                  *TYPE);
+            }
+
+            // Only the drawn types need a file.
+            const bool NEEDSFILE = E.type == SElement::eType::Image || E.type == SElement::eType::Button;
+            const auto IMAGE     = stringField(L, ITEM, "image");
+            if (NEEDSFILE && (!IMAGE || IMAGE->empty()))
+                return raise(L, "hyprdecor.setup: 'defaults.elements[{}].image' is required for type \"{}\"", i,
+                             E.type == SElement::eType::Button ? "button" : "image");
+            if (IMAGE)
+                E.path = *IMAGE;
+
+            if (E.type == SElement::eType::Text && hasField(L, ITEM, "text"))
+            {
+                const auto TXT = stringField(L, ITEM, "text");
+                if (!TXT)
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].text' must be a string", i);
+                E.text = *TXT;
+            }
+
+            // A text item must be given a size: layout never measures fonts.
+            if (E.type == SElement::eType::Text && !hasField(L, ITEM, "fill") && !hasField(L, ITEM, "width") && !hasField(L, ITEM, "height"))
+                return raise(L, "hyprdecor.setup: 'defaults.elements[{}].text' needs 'fill' or an explicit 'width'/'height' "
+                                "(layout does not measure fonts)", i);
 
             if (hasField(L, ITEM, "anchor"))
             {

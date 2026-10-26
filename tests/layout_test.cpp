@@ -550,8 +550,50 @@ static void testTitleMarginMovesBox()
     CHECK(B.x != A.x, "a left margin alters the box position");
 }
 
+// spacer and text take flow space without art. A spacer is the way to push later items
+// apart; a text item must be given a size because layout never measures fonts.
+static void testSpacerAndText()
+{
+    header("flow: spacer and text take space without art");
+
+    auto M = orangeFrame();
+    M.stackEnd = true;
+
+    std::vector<Layout::SItemSpec> specs;
+
+    Layout::SItemSpec first;
+    first.id = 0; first.kind = Layout::eItemKind::Image; first.srcW = 10; first.srcH = 10; first.scale = 1;
+    specs.push_back(first);
+
+    // A spacer fills the middle, pushing the last widget to the end edge.
+    Layout::SItemSpec sp;
+    sp.id = 1; sp.kind = Layout::eItemKind::Spacer; sp.fill = true; sp.weight = 1;
+    specs.push_back(sp);
+
+    Layout::SItemSpec last;
+    last.id = 2; last.kind = Layout::eItemKind::Image; last.srcW = 10; last.srcH = 10; last.scale = 1;
+    last.align = Layout::eAlign::End;
+    specs.push_back(last);
+
+    auto R = Layout::compute(M, specs);
+
+    CHECK(R.items.size() == 3, "spacer is a real item, got %zu entries", R.items.size());
+    CHECK(R.items[1].kind == Layout::eItemKind::Spacer, "spacer keeps its kind");
+    CHECK(R.items[1].rect.w > 0, "spacer takes the leftover width, got %.1f", R.items[1].rect.w);
+    CHECK(std::abs(R.items[2].rect.x + R.items[2].rect.w - 453) < 0.001, "the widget after it reaches the end edge");
+
+    // A text item with an explicit length takes exactly that length.
+    {
+        Layout::SItemSpec t;
+        t.id = 0; t.kind = Layout::eItemKind::Text; t.w = 80; t.h = 12;
+        auto R2 = Layout::compute(M, {t});
+        CHECK_RECT(R2.items[0].rect, 20, R2.items[0].rect.y, 80, 12, "text takes its explicit size");
+    }
+}
+
 int main()
 {
+    testSpacerAndText();
     testTitleMarginMovesBox();
     testMarginsAndOffsets();
     testEndIndependent();

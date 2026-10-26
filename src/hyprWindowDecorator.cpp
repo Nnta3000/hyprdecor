@@ -593,7 +593,13 @@ std::vector<Layout::SItemSpec> CHyprWindowDecorator::itemSpecs()
 
         Layout::SItemSpec s;
         s.id              = (int)i;
-        s.kind            = ELEMENT.cfg.interactive ? Layout::eItemKind::Button : Layout::eItemKind::Image;
+        switch (ELEMENT.cfg.type)
+        {
+            case SElement::eType::Spacer: s.kind = Layout::eItemKind::Spacer; break;
+            case SElement::eType::Text: s.kind = Layout::eItemKind::Text; break;
+            case SElement::eType::Button: s.kind = Layout::eItemKind::Button; break;
+            default: s.kind = ELEMENT.cfg.interactive ? Layout::eItemKind::Button : Layout::eItemKind::Image; break;
+        }
         s.align           = ELEMENT.cfg.anchor == SElement::eAnchor::TopRight ? Layout::eAlign::End : Layout::eAlign::Start;
         s.offsetX         = ELEMENT.cfg.offsetX;
         s.offsetY         = ELEMENT.cfg.offsetY;
@@ -676,8 +682,8 @@ int CHyprWindowDecorator::elementIndexAt(const Vector2D &local)
 
     for (const auto &item : RESOLVED.items)
     {
-        // The title is an item, but it is not hit-testable: it has no action.
-        if (item.kind == Layout::eItemKind::Title)
+        // Neither the title nor a spacer nor text has an action, so none are hit-testable.
+        if (item.kind == Layout::eItemKind::Title || item.kind == Layout::eItemKind::Spacer || item.kind == Layout::eItemKind::Text)
             continue;
 
         if (item.id < 0 || (size_t)item.id >= gPlugin->m_vElements.size())
@@ -1250,9 +1256,10 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
 
         for (const auto &item : RESOLVED.items)
         {
-            // The title is an item for LAYOUT purposes only; its pixels are the text and
-            // optional backdrop drawn by renderBarTitle/renderPass, not a texture here.
-            if (item.kind == Layout::eItemKind::Title)
+            // These take flow space but are not drawn from a texture here: the title is
+            // rendered by renderBarTitle, a spacer draws nothing, and text is not
+            // implemented yet (C5 templates).
+            if (item.kind == Layout::eItemKind::Title || item.kind == Layout::eItemKind::Spacer || item.kind == Layout::eItemKind::Text)
                 continue;
 
             if (item.id < 0 || (size_t)item.id >= gPlugin->m_vElements.size())

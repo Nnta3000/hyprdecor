@@ -46,7 +46,20 @@ struct SElement
 
     eRegion     region = eRegion::Top;
 
+    // What this entry draws. `image` and `button` need a file; `spacer` and `text` do
+    // not -- a spacer only takes flow space and text is drawn by the renderer.
+    enum class eType : uint8_t {
+        Image,
+        Button,
+        Spacer,
+        Text,
+    };
+
+    eType       type = eType::Image;
+
     std::string path;
+    // Only for type == Text.
+    std::string text;
     eAnchor     anchor  = eAnchor::TopLeft;
     double      offsetX = 0;
     double      offsetY = 0;
