@@ -115,6 +115,9 @@ private:
   // Which texture represents an element right now. `focus` is the window's focus.
   const SElementTexture &elementTexture(size_t index, const bool focus) const;
 
+  // Runs a clicked element's action, if it has one.
+  void runElementAction(size_t index);
+
   int m_iHoveredElement = -1;
   int m_iPressedElement = -1;
   void renderText(SP<Render::ITexture> out, const std::string &text, const CHyprColor &color, const Vector2D &bufferSize, const float scale, const int fontSize);

@@ -361,6 +361,12 @@ void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
 
     if (m_iPressedElement != -1)
     {
+        // Fire only if the pointer is STILL over the element that took the press, which
+        // is the same rule the legacy buttons use: dragging off cancels.
+        const int RELEASED = elementIndexAt(cursorRelativeToBar());
+        if (RELEASED == m_iPressedElement)
+            runElementAction((size_t)m_iPressedElement);
+
         m_iPressedElement = -1;
         damageEntire();
     }
@@ -373,6 +379,31 @@ void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
         }
         m_iButtonPressedIdx = -1;
         damageEntire();
+    }
+}
+
+// Runs an element's action. Named actions only: the plugin asks Hyprland to do
+// something, it never launches anything (ROADMAP D2).
+void CHyprWindowDecorator::runElementAction(const size_t index)
+{
+    if (index >= gPlugin->m_vElements.size())
+        return;
+
+    const auto &ELEMENT = gPlugin->m_vElements[index];
+    const auto  PWINDOW = m_pWindow.lock();
+    if (!PWINDOW)
+        return;
+
+    switch (ELEMENT.cfg.action)
+    {
+        case SElement::eAction::None: return;
+
+        case SElement::eAction::Close:
+            // `closewindow` is Hyprland's internal name for closing the active window.
+            // The click handler focuses this window before taking the press, so
+            // "activewindow" is the right target.
+            g_pKeybindManager->m_dispatchers["closewindow"]("activewindow");
+            return;
     }
 }
 
