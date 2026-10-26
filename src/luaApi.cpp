@@ -623,11 +623,18 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
                 const auto ACTION = stringField(L, ITEM, "action");
                 if (!ACTION)
                     return raise(L, "hyprdecor.setup: 'defaults.elements[{}].action' must be a string", i);
-                if (*ACTION == "close")
-                    E.action = SElement::eAction::Close;
-                else
-                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].action' \"{}\" is not implemented yet "
-                                    "(only \"close\" for now)", i, *ACTION);
+                static const std::map<std::string, SElement::eAction> ACTIONS = {
+                    {"close", SElement::eAction::Close},       {"maximize", SElement::eAction::Maximize}, {"fullscreen", SElement::eAction::Fullscreen},
+                    {"pin", SElement::eAction::Pin},           {"float", SElement::eAction::Float},       {"drag", SElement::eAction::Drag},
+                    {"resize", SElement::eAction::Resize},
+                };
+
+                const auto IT = ACTIONS.find(*ACTION);
+                if (IT == ACTIONS.end())
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].action' \"{}\" is not a known action "
+                                    "(close, maximize, fullscreen, pin, float, drag, resize)", i, *ACTION);
+
+                E.action = IT->second;
 
                 // An action implies a hit target: a button you cannot hover is dead art.
                 E.interactive = true;
