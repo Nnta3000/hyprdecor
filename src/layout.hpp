@@ -34,6 +34,8 @@ enum class eItemKind : uint8_t {
     Image,
     Button,
     Title,
+    Text,
+    Spacer,
 };
 
 enum class eAnchor : uint8_t {
@@ -193,6 +195,16 @@ inline SRect itemArea(const SFrameMetrics &m, eRegion region, const SRect &r)
 // nine-patch that stretches horizontally keeps the height of its fixed art.
 inline void naturalSize(const SItemSpec &s, double &w, double &h)
 {
+    // A spacer has no content: it only takes flow space, so its size is whatever it was
+    // given and otherwise zero. A text item has no art either; without `fill` or an
+    // explicit length it is a setup() error, because layout never measures fonts.
+    if (s.kind == eItemKind::Spacer || s.kind == eItemKind::Text)
+    {
+        w = s.w > 0 ? s.w : 0;
+        h = s.h > 0 ? s.h : 0;
+        return;
+    }
+
     w = s.w > 0 ? s.w : s.srcW * s.scale;
     h = s.h > 0 ? s.h : s.srcH * s.scale;
 
@@ -480,7 +492,16 @@ inline SResult compute(const SFrameMetrics &m, const std::vector<SItemSpec> &top
 inline std::string itemsJson(const std::vector<SResolvedItem> &items, double originX, double originY)
 {
     const auto FMT = [](double v) { return std::format("{:.0f}", std::round(v)); };
-    const auto KIND = [](eItemKind k) { return k == eItemKind::Button ? "button" : k == eItemKind::Title ? "title" : "image"; };
+    const auto KIND = [](eItemKind k) {
+        switch (k)
+        {
+            case eItemKind::Button: return "button";
+            case eItemKind::Title: return "title";
+            case eItemKind::Text: return "text";
+            case eItemKind::Spacer: return "spacer";
+            default: return "image";
+        }
+    };
 
     std::string out = "[";
     bool        first = true;
