@@ -98,6 +98,12 @@ struct SElement
     enum class eAction : uint8_t {
         None,
         Close,
+        Maximize,
+        Fullscreen,
+        Pin,
+        Float,
+        Drag,
+        Resize,
     };
 
     eAction action = eAction::None;

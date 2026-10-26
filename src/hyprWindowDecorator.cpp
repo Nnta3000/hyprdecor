@@ -384,6 +384,24 @@ void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
 
 // Runs an element's action. Named actions only: the plugin asks Hyprland to do
 // something, it never launches anything (ROADMAP D2).
+//
+// The click handler focuses this window before taking the press, so "activewindow" is
+// the right target for every dispatcher here.
+static const char *elementActionName(const SElement::eAction action)
+{
+    switch (action)
+    {
+        case SElement::eAction::Close: return "close";
+        case SElement::eAction::Maximize: return "maximize";
+        case SElement::eAction::Fullscreen: return "fullscreen";
+        case SElement::eAction::Pin: return "pin";
+        case SElement::eAction::Float: return "float";
+        case SElement::eAction::Drag: return "drag";
+        case SElement::eAction::Resize: return "resize";
+        default: return "none";
+    }
+}
+
 void CHyprWindowDecorator::runElementAction(const size_t index)
 {
     if (index >= gPlugin->m_vElements.size())
@@ -394,15 +412,57 @@ void CHyprWindowDecorator::runElementAction(const size_t index)
     if (!PWINDOW)
         return;
 
+    // A dispatcher name that this Hyprland does not register would otherwise be a
+    // silent no-op: the button looks alive and nothing happens. Report it once per
+    // action instead, so a wrong name is visible rather than mysterious.
+    const auto RUN = [&](const char *name, const std::string &args) {
+        const auto IT = g_pKeybindManager->m_dispatchers.find(name);
+        if (IT == g_pKeybindManager->m_dispatchers.end())
+        {
+            Log::logger->log(Log::ERR, std::format("[HYPRDECOR] action \"{}\" needs dispatcher \"{}\", which this Hyprland does not register",
+                                                   elementActionName(ELEMENT.cfg.action), name));
+            return;
+        }
+
+        IT->second(args);
+    };
+
     switch (ELEMENT.cfg.action)
     {
         case SElement::eAction::None: return;
 
-        case SElement::eAction::Close:
-            // `closewindow` is Hyprland's internal name for closing the active window.
-            // The click handler focuses this window before taking the press, so
-            // "activewindow" is the right target.
-            g_pKeybindManager->m_dispatchers["closewindow"]("activewindow");
+        case SElement::eAction::Close: RUN("closewindow", "activewindow"); return;
+
+        case SElement::eAction::Maximize:
+            // Hyprland has no separate "maximise": maximise is fullscreen mode 0, which
+            // keeps the bars. The registered dispatcher is `fullscreenstate`, verified by
+            // test.lua's working `hyprctl dispatch fullscreenstate 0 0`.
+            RUN("fullscreenstate", "0,0,activewindow");
+            return;
+
+        case SElement::eAction::Fullscreen: RUN("fullscreenstate", "1,0,activewindow"); return;
+
+        case SElement::eAction::Pin:
+            // Pinning a TILED window makes Hyprland complain and does nothing useful, so
+            // float first. Verified behaviour (AGENTS.md): pin requires floating.
+            if (!PWINDOW->m_isFloating)
+                RUN("setfloating", "activewindow");
+            RUN("pin", "activewindow");
+            return;
+
+        case SElement::eAction::Float: RUN("togglefloating", "activewindow"); return;
+
+        case SElement::eAction::Drag:
+            // Same two calls the title-bar drag uses, so a button and a drag agree.
+            RUN("setfloating", "activewindow");
+            RUN("resizewindowpixel", "exact 50% 50%,activewindow");
+            RUN("pin", "activewindow");
+            RUN("mouse", "1movewindow");
+            return;
+
+        case SElement::eAction::Resize:
+            // Hyprland's own resize mode: it keeps tracking the pointer until release.
+            RUN("mouse", "1resizewindow");
             return;
     }
 }
