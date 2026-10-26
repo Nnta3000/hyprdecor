@@ -314,6 +314,13 @@ void CHyprWindowDecorator::handleDownEvent(Event::SCallbackInfo &info, std::opti
     {
         info.cancelled = true;
         damageEntire();
+
+        // A gesture action must START on press: Hyprland's mouse grab requires the button
+        // to be down, and our swallow means only we know it is. Firing these on release
+        // did nothing, which is exactly what was reported.
+        if ((size_t)m_iPressedElement < gPlugin->m_vElements.size() && gPlugin->m_vElements[m_iPressedElement].cfg.isGesture())
+            runElementAction((size_t)m_iPressedElement);
+
         return;
     }
 
@@ -364,7 +371,9 @@ void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
         // Fire only if the pointer is STILL over the element that took the press, which
         // is the same rule the legacy buttons use: dragging off cancels.
         const int RELEASED = elementIndexAt(cursorRelativeToBar());
-        if (RELEASED == m_iPressedElement)
+        const bool ISGESTURE = (size_t)m_iPressedElement < gPlugin->m_vElements.size()
+                                   && gPlugin->m_vElements[m_iPressedElement].cfg.isGesture();
+        if (RELEASED == m_iPressedElement && !ISGESTURE)
             runElementAction((size_t)m_iPressedElement);
 
         m_iPressedElement = -1;
@@ -457,15 +466,16 @@ void CHyprWindowDecorator::runElementAction(const size_t index)
         case SElement::eAction::Float: RUN("togglefloating", "activewindow"); return;
 
         case SElement::eAction::Drag:
-            // Same two calls the title-bar drag uses, so a button and a drag agree.
+            // Same sequence the title-bar drag uses: float it, pin it so workspaces can
+            // change mid-drag, then hand the move to Hyprland. Called on PRESS, while the
+            // button is still down, which is the only moment the grab can attach.
             RUN("setfloating", "activewindow");
-            RUN("resizewindowpixel", "exact 50% 50%,activewindow");
             RUN("pin", "activewindow");
             RUN("mouse", "1movewindow");
             return;
 
         case SElement::eAction::Resize:
-            // Hyprland's own resize mode: it keeps tracking the pointer until release.
+            // Hyprland's resize mode: it tracks the pointer until the button is released.
             RUN("mouse", "1resizewindow");
             return;
     }
