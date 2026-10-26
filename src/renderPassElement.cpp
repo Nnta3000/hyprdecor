@@ -4,7 +4,6 @@
 #include <hyprland/src/render/gl/GLTexture.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include "hyprWindowDecorator.hpp"
-#include "plugin.hpp"
 
 CRenderPassElement::CRenderPassElement(const CRenderPassElement::SBarData &data_) : data(data_)
 {

@@ -555,7 +555,7 @@ static void testTitleFitsOrVoids()
 {
     header("title box: no room means an empty box (nothing drawn)");
 
-    const auto box = [](double bandW, double leftEdge, double rightEdge) {
+    const auto box = []([[maybe_unused]] double bandW, double leftEdge, double rightEdge) {
         const double AVAILABLE = rightEdge - leftEdge;
         if (AVAILABLE <= 0)
             return 0.0;

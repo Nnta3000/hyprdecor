@@ -30,7 +30,6 @@
 #include "plugin.hpp"
 #include "compat.hpp"
 #include "util.hpp"
-#include "ninepatch.hpp"
 #include "titlebox.hpp"
 
 CHyprWindowDecorator::CHyprWindowDecorator(PHLWINDOW pWindow) : IHyprWindowDecoration(pWindow)
@@ -957,7 +956,6 @@ void CHyprWindowDecorator::renderBarButtonsText(CBox *barBox, const float scale,
     const bool BUTTONSRIGHT = gPlugin->bar_buttons_alignment != "left";
     const float iconReserved = gPlugin->decoration_appicon_enabled ? (VERTICAL ? barBox->width : barBox->height) : 0;
     double offset = (gPlugin->decoration_padding * scale) + (BUTTONSRIGHT ? 0 : iconReserved);
-    float noScaleOffset = gPlugin->decoration_padding + (BUTTONSRIGHT ? 0 : iconReserved / scale);
 
     int hoveredIdx = indexToButton(COORDS);
 
@@ -983,7 +981,6 @@ void CHyprWindowDecorator::renderBarButtonsText(CBox *barBox, const float scale,
             pos = {barBox->x + (int)std::round((barBox->width - scaledButtonSizeX) / 2.0), barBox->y + (int)std::round(BUTTONSRIGHT ? barBox->height - offset - scaledButtonSizeY : offset), (double)std::round(scaledButtonSizeX), (double)std::round(scaledButtonSizeY)};
         }
 
-        noScaleOffset += gPlugin->bar_button_padding + (VERTICAL ? button.size.y : button.size.x);
 
         // Skip if textured button is not available
         if (button.texActive->m_texID == 0)
@@ -1065,8 +1062,6 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
 
     color.a *= a;
     const bool SHOULDBLUR = gPlugin->bar_blur && color.a < 1.F;
-    const auto PWORKSPACE = PWINDOW->m_workspace;
-    const auto WORKSPACEOFFSET = PWORKSPACE && !PWINDOW->m_pinned ? PWORKSPACE->m_renderOffset->value() : Vector2D();
 
     // Only window rounding matters here: the stencil path below masks out the window
     // area so the frame does not paint over the client surface. Including the border
@@ -1094,8 +1089,6 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                                                 PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y));
         return;
     }
-
-    const auto BARBUF = DECOBOX.size() * pMonitor->m_scale;
 
     CBox titleBarBox = {DECOBOX.x - pMonitor->m_position.x, DECOBOX.y - pMonitor->m_position.y, DECOBOX.w, DECOBOX.h};
 

@@ -75,7 +75,6 @@ public:
     // inside a render pass, unlike recalculateMonitor() itself.
 
     // True once the config manager has committed this plugin's values.
-    bool configReady() const;
 
     // Shows an on-screen notification (and logs) for a hard configuration error.
     void notifyError(const std::string &message);
@@ -125,7 +124,6 @@ public:
 
     // Deferred update, see CPlugin::requestUpdate().
     bool m_bUpdatePending = false;
-    int  m_iUpdateRetries = 0;
 
     // Last render state, exposed by CPlugin::statusString().
     int  lastBarW = 0;

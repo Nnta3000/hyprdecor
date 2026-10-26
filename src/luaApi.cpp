@@ -3,8 +3,6 @@
 #include <hyprland/src/plugins/PluginAPI.hpp>
 
 #include "plugin.hpp"
-#include "config.hpp"
-#include "hyprWindowDecorator.hpp"
 
 extern "C" {
 #include <lua.h>

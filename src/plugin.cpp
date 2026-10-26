@@ -351,33 +351,12 @@ void CPlugin::processPendingUpdate()
 
     m_bUpdatePending = false;
 
-    // The config manager may not have committed this plugin's values yet. Give it a
-    // few ticks, then run regardless: update() itself tolerates missing values, and
-    // retrying forever meant it never ran at all (the config never became "ready"
-    // because nothing was reading it).
-    if (!configReady())
-    {
-        if (++m_iUpdateRetries < 60)
-        {
-            m_bUpdatePending = true;
-            return;
-        }
-
-        Log::logger->log(Log::WARN, "[HYPRDECOR] config values still unavailable after retrying; running update anyway");
-    }
-
-    m_iUpdateRetries = 0;
-
+    // No readiness gate: the flat `plugin:hyprdecor:*` values it waited for no longer
+    // exist (everything comes from setup()), so the check could only ever time out after
+    // 60 ticks and log a warning. update() reads SConfig, which setup() applies whole or
+    // not at all.
     Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] running deferred update (this={})", (void *)this));
     update();
-}
-
-bool CPlugin::configReady() const
-{
-    // enabled is registered before any other value; if it is readable, the whole
-    // config block has been committed and it is safe to read the rest.
-    const auto VALUE = HyprlandAPI::getConfigValue(m_pHandle, "plugin:hyprdecor:enabled");
-    return VALUE && VALUE->getDataStaticPtr() != nullptr;
 }
 
 std::string CPlugin::statusString() const
