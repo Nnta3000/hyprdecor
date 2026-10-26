@@ -118,6 +118,13 @@ private:
   // Runs a clicked element's action, if it has one.
   void runElementAction(size_t index);
 
+  // A gesture action armed on press, started on the FIRST mouse move. Calling the mouse
+  // dispatcher during the press does nothing: the decorator swallowed that event, so
+  // Hyprland's input manager has no button-down to attach the grab to. By the time the
+  // pointer moves, the state is consistent again -- which is exactly what the title-bar
+  // drag relies on.
+  int m_iGestureElement = -1;
+
   int m_iHoveredElement = -1;
   int m_iPressedElement = -1;
   void renderText(SP<Render::ITexture> out, const std::string &text, const CHyprColor &color, const Vector2D &bufferSize, const float scale, const int fontSize);
