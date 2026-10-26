@@ -90,6 +90,18 @@ struct SElement
     // A missing file falls back to the focused texture, so adding states is optional.
     bool   interactive = false; // hit-testable: enables _hovered / _pressed
 
+    // What a click does. Named actions, never shell commands (ROADMAP D2): the plugin
+    // asks Hyprland to do something it already knows. Empty means "no action": the
+    // element is still hoverable, which is enough for decorative art.
+    //
+    // `pin` floats the window first, because Hyprland rejects pinning a tiled window.
+    enum class eAction : uint8_t {
+        None,
+        Close,
+    };
+
+    eAction action = eAction::None;
+
     // Flow, inside the element's region. `fill` makes the element share the leftover
     // space by `weight`; `align` places it on the main axis, `crossAlign` across it.
     bool   fill   = false;

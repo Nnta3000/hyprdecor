@@ -83,10 +83,19 @@ Each commit ends with the user testing. The next one starts only after that.
 ## To verify before relying on it
 
 - Whether `hl.config({ ["plugin:hyprdecor:key"] = value })` applies (only matters if D1 changes).
-- The dispatcher string format on a Lua-config Hyprland (`killactive` versus a `hl.dsp...`
-  expression), before C4.
+- ~~The dispatcher string format~~ **Resolved (C4 probe).** On a Lua-config Hyprland,
+  `hyprctl dispatch` evaluates its argument as Lua and takes a CType, not a command
+  name: `hyprctl dispatch closewindow` and `... togglefloating` both fail with
+  "hl.dispatch: expected a dispatcher (e.g. hl.dsp.window.close())". The verbs are
+  `hl.dsp.window.close / fullscreen / float / pin / pseudo / drag / resize`.
+  **Consequence: `dispatch = "name args"` as a string cannot work.** The escape hatch
+  needs a table of known verbs, or must be dropped.
+- ~~Asymmetric reserved extents~~ **Resolved (C2 probe).** `reserved: left 20, top 48,
+  right 10, bottom 22` was honoured, the window was correctly inset, corners continuous.
 - The Lua syntax for a custom-effect window rule such as `hyprdecor:theme`, before C5.
-- Asymmetric reserved extents under `DECORATION_POSITION_ABSOLUTE`, in C2.
+- Whether the plugin's internal `g_pKeybindManager->m_dispatchers["..."]` map still
+  resolves those verbs on a Lua-config build, or is now derived from the Lua
+  dispatchers. **Prove with one real click before wiring seven actions.**
 
 ## Verified against Hyprland 0.56.2 (`/usr/bin/Hyprland`, headers in `/usr/include/hyprland`)
 

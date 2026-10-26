@@ -618,6 +618,21 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             if (hasField(L, ITEM, "interactive"))
                 E.interactive = boolField(L, ITEM, "interactive", false);
 
+            if (hasField(L, ITEM, "action"))
+            {
+                const auto ACTION = stringField(L, ITEM, "action");
+                if (!ACTION)
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].action' must be a string", i);
+                if (*ACTION == "close")
+                    E.action = SElement::eAction::Close;
+                else
+                    return raise(L, "hyprdecor.setup: 'defaults.elements[{}].action' \"{}\" is not implemented yet "
+                                    "(only \"close\" for now)", i, *ACTION);
+
+                // An action implies a hit target: a button you cannot hover is dead art.
+                E.interactive = true;
+            }
+
             if (hasField(L, ITEM, "fill"))
             {
                 lua_getfield(L, ITEM, "fill");
