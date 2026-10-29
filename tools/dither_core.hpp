@@ -233,9 +233,19 @@ namespace Hyprdecor::Dither
 
     // --------------------------------------------------------------------- LUT
 
-    // Input key width. 5 bits per channel = 32768 entries, the agreed starting point.
-    // Kept as a parameter everywhere so it can be raised once the shader is benchmarked.
-    constexpr int DEFAULT_KEY_BITS = 5;
+    // Input key width: bits per channel, so the table holds 2^(3*keyBits) entries.
+    //
+    // 4 bits (4096 entries) is the default, and it is a HARD LIMIT reached by testing,
+    // not a taste call: a 5-bit table (32768 entries, a ~443 KB const initialiser) makes
+    // Intel/Mesa hang the compositor while compiling the screen shader -- black screen,
+    // frozen session, no error logged. 4 bits at ~90 KB compiles instantly. Measured
+    // quality on the article scene was already flat between 5 and 6 bits, so the extra
+    // size bought nothing anyway.
+    //
+    // Anything above 4 bits should be treated as unsupported for the SHADER path until
+    // it has been proven on the target GPU. The CPU path has no such limit.
+    constexpr int DEFAULT_KEY_BITS      = 4;
+    constexpr int MAX_SHADER_KEY_BITS   = 4;
 
     inline size_t lutSize(int keyBits)
     {
