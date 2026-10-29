@@ -39,6 +39,9 @@ namespace
         double      psychovisual = 0.1;
         int         pixelSize = 2;
         bool        verbose = false;
+        // Set when --key-bits exceeds what a screen shader can safely carry. The header
+        // is still written (the CPU path can use it), the shader is not.
+        bool        shaderUnsafe = false;
     };
 
     void usage()
@@ -334,6 +337,20 @@ int main(int argc, char **argv)
         return 2;
     }
 
+    // Refuse to emit a shader table the target GPU cannot compile. A 5-bit table is a
+    // ~443 KB const initialiser; Intel/Mesa hangs the compositor on it with no error,
+    // which is a black screen and a frozen session rather than a visible failure. Fail
+    // here, loudly, instead of producing a shader that bricks the screen.
+    if (opt.keyBits > MAX_SHADER_KEY_BITS)
+    {
+        std::cerr << std::format("palette-gen: --key-bits {} is above the shader limit of {}.\n"
+                                 "  A larger table hangs Intel/Mesa while compiling the screen shader;\n"
+                                 "  see the note on DEFAULT_KEY_BITS in tools/dither_core.hpp.\n"
+                                 "  Writing the CPU header only; no screen shader will be produced.\n",
+                                 opt.keyBits, MAX_SHADER_KEY_BITS);
+        opt.shaderUnsafe = true;
+    }
+
     std::vector<uint8_t> alpha;
     std::vector<RGB>     raw;
     try
@@ -374,15 +391,22 @@ int main(int argc, char **argv)
         }
     }
 
-    const auto FRAG = shaderSource(PAL, LUT, opt);
-    const auto HDR  = headerSource(PAL, LUT, opt);
+    const auto HDR = headerSource(PAL, LUT, opt);
 
-    if (!writeFile(opt.outDir + "/palette_dither.frag", FRAG))
-        return 1;
     if (!writeFile(opt.outDir + "/dither_lut.hpp", HDR))
+        return 1;
+    std::cout << std::format("palette-gen: wrote {}/dither_lut.hpp ({} entries)\n", opt.outDir, LUT.size());
+
+    if (opt.shaderUnsafe)
+    {
+        std::cout << "palette-gen: NOT writing palette_dither.frag (table too large for a screen shader)\n";
+        return 0;
+    }
+
+    const auto FRAG = shaderSource(PAL, LUT, opt);
+    if (!writeFile(opt.outDir + "/palette_dither.frag", FRAG))
         return 1;
 
     std::cout << std::format("palette-gen: wrote {}/palette_dither.frag ({} bytes, {} LUT entries)\n", opt.outDir, FRAG.size(), LUT.size());
-    std::cout << std::format("palette-gen: wrote {}/dither_lut.hpp\n", opt.outDir);
     return 0;
 }
