@@ -162,57 +162,56 @@ vec3 paletteColour(int index) {
 }
 
 void main() {
-    // Un-premultiply: the composited screen texture is premultiplied, and palette
-    // matching on premultiplied values would darken every semi-transparent pixel.
+    // The composited screen texture is PREMULTIPLIED (the compositor blends with
+    // GL_ONE / GL_ONE_MINUS_SRC_ALPHA), so un-premultiply before colour matching.
+    // Palette entry #000000 is usually the transparent background of every window, so
+    // forgetting this makes the whole desktop look like it darkened by its own alpha.
     vec4 src = texture(tex, v_texcoord);
-    vec3 col;
-    if (src.a > 0.0001)
-        col = src.rgb / src.a;
-    else
-        col = vec3(0.0);
+    vec3 col = src.a > 0.0001 ? src.rgb / src.a : vec3(0.0);
 
-    // HALF RESOLUTION: snap to the centre of the PIXEL_SIZE x PIXEL_SIZE block this
-    // fragment belongs to, so an n x n block returns one identical sample. Combined with
-    // nearest-neighbour filtering in the compositor this reconstructs as chunky pixels.
+    // Sample coordinates, NOT gl_FragCoord: v_texcoord is defined on the screen quad in
+    // 0..1 whatever the projection, so it cannot be thrown off by Hyprland's monitor
+    // transform or zoom the way a raw fragment position can.
     vec2 texel = 1.0 / vec2(textureSize(tex, 0));
     vec2 blockSize = texel * float(PIXEL_SIZE);
-    vec2 snapped = (floor(v_texcoord / blockSize) + 0.5) * blockSize;
-    // Offset by half a texel so the sample lands inside the block, never on its edge.
-    snapped = clamp(snapped + texel * 0.5, texel * 0.5, vec2(1.0) - texel * 0.5);
+    vec2 blockUV = floor(v_texcoord / blockSize);
+    ivec2 block = ivec2(blockUV);
 
-    vec4 sampleCol = texture(tex, snapped);
+    // HALF RESOLUTION: one sample per PIXEL_SIZE x PIXEL_SIZE block, taken at the block
+    // centre, so an n x n block reads one identical colour and reconstructs as chunky
+    // pixels.
+    vec2 snapped = (blockUV + 0.5) * blockSize;
+    vec4 sampleCol = texture(tex, clamp(snapped, vec2(0.0), vec2(1.0)));
     if (sampleCol.a > 0.0001)
         col = sampleCol.rgb / sampleCol.a;
-    else
-        col = vec3(0.0);
 
-    // Quantise exactly as the generator does: top KEY_BITS bits, truncated.
-    ivec3 q = ivec3(clamp(col, 0.0, 1.0) * 255.0);
-    int shift = 8 - KEY_BITS;
-    int r = q.r >> shift;
-    int g = q.g >> shift;
-    int b = q.b >> shift;
-    int key = (r << (2 * KEY_BITS)) | (g << KEY_BITS) | b;
+    // Quantise exactly as the generator does: top KEY_BITS bits of an 8-bit channel,
+    // truncated. Deliberately NOT `ivec3(col * 255.0)`: the final pass can run on a
+    // float or 10-bit work buffer, and multiplying an already-normalised value by 255
+    // and truncating would put the colour one bit off on those formats. Doing the math
+    // in 0..1 and scaling the LEVELS instead keeps the mapping identical on any format.
+    float steps = float(1 << KEY_BITS);
+    ivec3 q = ivec3(clamp(col, 0.0, 1.0) * steps);
+    // Clamping to the last level keeps pure white on the top entry.
+    q = min(q, ivec3(int(steps) - 1));
+    int key = (q.r << (2 * KEY_BITS)) | (q.g << KEY_BITS) | q.b;
 
     uint plan = LUT[key];
     int first  = int(plan & 0xFFu);
     int second = int((plan >> 8) & 0xFFu);
     int level  = int((plan >> 16) & 0xFFu);
 
-    // Positional dither on SCREEN-ALIGNED block coordinates, not on the snapped sample
-    // coordinate: a pattern keyed to the sampled pixel would repeat inside each block and
-    // produce a visible grid artefact instead of a dither.
-    ivec2 pixel = ivec2(gl_FragCoord.xy);
-    ivec2 block = pixel / PIXEL_SIZE;
+    // Positional dither keyed to the BLOCK, not the pixel: keying it to the sampled
+    // coordinate would repeat the pattern inside each block and show a grid.
     int threshold = BAYER4[(block.y & 3) * 4 + (block.x & 3)];
 
-    int chosen = (threshold < level) ? second : first;
-    vec3 outCol = paletteColour(chosen);
+    vec3 outCol = paletteColour(threshold < level ? second : first);
 
-    // Re-premultiply.
+    // Re-premultiply, and keep the source alpha so transparency still works.
     fragColor = vec4(outCol * sampleCol.a, sampleCol.a);
 }
 )";
+        return s;
         return s;
     }
 
