@@ -59,3 +59,24 @@ if(HYPRDECOR_BUILD_TESTS)
     target_link_libraries(config_value_test PRIVATE PkgConfig::lua_only)
     target_compile_options(config_value_test PRIVATE -Wall -Wextra)
 endif()
+
+# ---------------------------------------------------------------------------
+# Palette dithering tools (offline; no Hyprland, no GPU, no cairo).
+#
+#   cmake --build build --target palette-gen dither-test
+#   ./build/palette-gen --palette ../orange-palette.png --out-dir ../build
+#   ./build/dither-test --palette ../orange-palette.png --in scene.png --out out.png
+#
+# They read and write images through ImageMagick's `magick` binary rather than linking
+# an image library, so the only requirement is magick being on PATH at run time.
+# ---------------------------------------------------------------------------
+option(HYPRDECOR_BUILD_TOOLS "Build the palette dithering tools" ON)
+if(HYPRDECOR_BUILD_TOOLS)
+    add_executable(palette-gen tools/palette_gen.cpp)
+    target_include_directories(palette-gen PRIVATE tools)
+    target_compile_options(palette-gen PRIVATE -Wall -Wextra -Wunused -Wuninitialized)
+
+    add_executable(dither-test tools/dither_test.cpp)
+    target_include_directories(dither-test PRIVATE tools)
+    target_compile_options(dither-test PRIVATE -Wall -Wextra -Wunused -Wuninitialized)
+endif()
