@@ -1,4 +1,5 @@
 #include "plugin.hpp"
+#include <hyprland/src/desktop/view/window/WindowPresentation.hpp>
 #include "compat.hpp"
 #include "hyprWindowDecorator.hpp"
 #include "util.hpp"
@@ -62,7 +63,7 @@ CHyprWindowDecorator *CPlugin::decoratorFor(PHLWINDOW pWindow)
     if (!pWindow)
         return nullptr;
 
-    for (const auto &deco : pWindow->m_windowDecorations)
+    for (const auto &deco : pWindow->presentation().decorations())
     {
         if (deco && deco->getDisplayName() == "Hyprdecor")
         {
@@ -425,6 +426,7 @@ void CPlugin::update()
     bar_color             = CHyprColor(C.barColor);
     col_text              = CHyprColor(C.textColor);
     bar_text_font         = C.titleFont;
+    bar_text_font_unfocused = C.titleFontUnfocused.empty() ? C.titleFont : C.titleFontUnfocused;
     decoration_title_size = C.titleSize;
     decoration_title_enabled = C.titleEnabled;
     decoration_title_placement = C.titlePlacement;
@@ -538,7 +540,7 @@ void CPlugin::update()
 
             if (auto pWindow = bar->getOwner())
             {
-                pWindow->updateWindowDecos();
+                pWindow->presentation().updateDecorations();
                 g_pHyprRenderer->damageWindow(pWindow);
             }
             bar->damageEntire();

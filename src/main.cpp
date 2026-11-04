@@ -4,7 +4,8 @@
 
 #include <any>
 #include <hyprland/src/Compositor.hpp>
-#include <hyprland/src/desktop/view/Window.hpp>
+#include <hyprland/src/desktop/view/window/Window.hpp>
+#include <hyprland/src/desktop/view/window/WindowPresentation.hpp>
 #include <hyprland/src/config/ConfigManager.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/desktop/rule/windowRule/WindowRuleEffectContainer.hpp>
@@ -30,16 +31,19 @@ static void onNewWindow([[maybe_unused]] void *self, std::any data)
     if (!PWINDOW)
         return;
 
-    if (!PWINDOW->m_X11DoesntWantBorders)
+    // 0.57 removed m_X11DoesntWantBorders: suppression is now the window rule
+    // `decorate`, which draw() already honours. Registering unconditionally is correct,
+    // and the duplicate check below still prevents two of our decorations on one window.
     {
-        if (std::ranges::any_of(PWINDOW->m_windowDecorations, [](const auto &d)
+        if (std::ranges::any_of(PWINDOW->presentation().decorations(), [](const auto &d)
                                 { return d && d->getDisplayName() == "Hyprdecor"; }))
         {
             Log::logger->log(Log::DEBUG, "[HYPRDECOR] window already has a hyprdecor decoration, skipping");
             return;
         }
 
-        auto bar = makeUnique<CHyprWindowDecorator>(PWINDOW);
+        // 0.57 takes a SHARED pointer (decorations live in presentation() as SP<>).
+        auto bar = makeShared<CHyprWindowDecorator>(PWINDOW);
         HyprlandAPI::addWindowDecoration(gPlugin->m_pHandle, PWINDOW, std::move(bar));
 
         // Track the window, never the decorator: the decorator is owned by Hyprland
@@ -74,7 +78,7 @@ static void onUpdateWindowRules(PHLWINDOW window)
     if (auto bar = CPlugin::decoratorFor(window))
     {
         bar->updateRules();
-        window->updateWindowDecos();
+        window->presentation().updateDecorations();
     }
 }
 
@@ -118,20 +122,26 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
                                                                         { gPlugin->processPendingUpdate(); }));
 
     // Diagnostics: `hyprctl hyprdecor status`
-    static auto PSTATUS = HyprlandAPI::registerHyprCtlCommand(gPlugin->m_pHandle, SHyprCtlCommand{
-                                                                                    .name = "hyprdecor",
-                                                                                    .exact = false,
-                                                                                    .fn = [](eHyprCtlOutputFormat, std::string arg) -> std::string {
-                                                                                        if (arg.find("status") != std::string::npos || arg.empty())
-                                                                                            return gPlugin ? gPlugin->statusString() : "hyprdecor not loaded\n";
-                                                                                        return "usage: hyprctl hyprdecor status\n";
-                                                                                    },
-                                                                                });
+    //
+    // 0.57 replaced the old SHyprCtlCommand struct with IPC::Socket1::SCommand, whose
+    // handler returns a SResponse built from the parsed SRequest, and whose match mode is
+    // an enum rather than a bool.
+    {
+        IPC::Socket1::SCommand CMD;
+        CMD.name = "hyprdecor";
+        CMD.match = IPC::Socket1::COMMAND_MATCH_PREFIX;
+        CMD.handler = [](const IPC::Socket1::SRequest &request) -> IPC::Socket1::SResponse {
+            if (request.command.find("status") != std::string::npos || request.command.empty())
+                return IPC::Socket1::SResponse(gPlugin ? gPlugin->statusString() : "hyprdecor not loaded\n");
+            return IPC::Socket1::SResponse("usage: hyprctl hyprdecor status\n");
+        };
+        gPlugin->m_pStatusCommand = HyprlandAPI::registerHyprCtlCommand(gPlugin->m_pHandle, CMD);
+    }
 
     // add deco to existing windows
     for (auto &w : Compat::windows())
     {
-        if (w->isHidden() || !w->m_isMapped)
+        if (w->isHidden() || !w->mapped())
             continue;
 
         onNewWindow(nullptr /* unused */, std::any(w));
@@ -158,7 +168,7 @@ APICALL EXPORT void PLUGIN_EXIT()
                 continue;
 
             if (auto deco = CPlugin::decoratorFor(W))
-                W->removeWindowDeco(deco);
+                W->presentation().removeDecoration(deco);
         }
         gPlugin->m_vWindows.clear();
     }
@@ -171,7 +181,7 @@ APICALL EXPORT void PLUGIN_EXIT()
 
         // Only touch a render pass if a render is actually in flight.
         if (g_pHyprRenderer)
-            g_pHyprRenderer->currentPass().removeAllOfType("CRenderPassElement");
+            Render::IHyprRenderer::currentPass(g_pHyprRenderer->context()).removeAllOfType("CRenderPassElement");
 
         Desktop::Rule::windowEffects()->unregisterEffect(gPlugin->m_barColorRuleIdx);
         Desktop::Rule::windowEffects()->unregisterEffect(gPlugin->m_titleColorRuleIdx);

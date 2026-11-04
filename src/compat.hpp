@@ -3,7 +3,7 @@
 
 #include <hyprland/src/desktop/DesktopTypes.hpp>
 #include <hyprland/src/desktop/state/WindowState.hpp>
-#include <hyprland/src/desktop/view/Window.hpp>
+#include <hyprland/src/desktop/view/window/Window.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
 #include <hyprland/src/helpers/memory/Memory.hpp>
 #include <hyprland/src/helpers/Color.hpp>

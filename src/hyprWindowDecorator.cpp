@@ -2,7 +2,8 @@
 
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/desktop/state/FocusState.hpp>
-#include <hyprland/src/desktop/view/Window.hpp>
+#include <hyprland/src/desktop/view/window/Window.hpp>
+#include <hyprland/src/desktop/view/window/WindowPresentation.hpp>
 #include <hyprland/src/helpers/MiscFunctions.hpp>
 #include <hyprland/src/managers/SeatManager.hpp>
 // m_exclusiveLSes is private in InputManager. The macro must stay scoped to this
@@ -14,6 +15,9 @@
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/layout/LayoutManager.hpp>
 #include <hyprland/src/config/ConfigManager.hpp>
+// The minimize action must go through the Lua dispatchers on a Lua-config Hyprland.
+#include <hyprland/src/config/lua/ConfigManager.hpp>
+#include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
 #include <hyprland/src/animation/AnimationManager.hpp>
 #include <hyprland/src/config/shared/animation/AnimationTree.hpp>
 #include <hyprland/src/protocols/LayerShell.hpp>
@@ -22,6 +26,7 @@
 #include <hyprland/src/event/EventBus.hpp>
 #include <libdrm/drm_fourcc.h>
 #include <pango/pangocairo.h>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -33,6 +38,20 @@
 #include "titlebox.hpp"
 #include "itemstate.hpp"
 #include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
+
+// Dispatcher helpers. Defined further down with the dispatcher notes, but used by the
+// pointer handlers above them.
+static std::string luaWindowSelector(const PHLWINDOW &PWINDOW);
+// eWindowState is a SCOPED enum in 0.57, so `m_state & WINDOW_STATE_PINNED` does not
+// compile without a cast. This mirrors what Hyprland's own Actions::pinWindow() does.
+static bool pinnedBit(const PHLWINDOW &W)
+{
+    return W && (((uint8_t)W->m_state & (uint8_t)Desktop::View::WINDOW_STATE_PINNED) != 0);
+}
+
+static std::string luaQuote(const std::string &TEXT);
+static void        dispatchLua(const std::string &what, const std::string &code);
+static void        dispatchLuaSync(const std::string &what, const std::string &code);
 
 CHyprWindowDecorator::CHyprWindowDecorator(PHLWINDOW pWindow) : IHyprWindowDecoration(pWindow)
 {
@@ -154,7 +173,7 @@ bool CHyprWindowDecorator::inputIsValid()
     if (!gPlugin->enabled)
         return false;
 
-    if (!m_pWindow->m_workspace || !m_pWindow->m_workspace->isVisible() || !g_pInputManager->m_exclusiveLSes.empty() ||
+    if (!m_pWindow->m_workspace || !m_pWindow->m_workspace->visible() || !g_pInputManager->m_exclusiveKeyboardLSes.empty() ||
         (g_pSeatManager->m_seatGrab && !g_pSeatManager->m_seatGrab->accepts(m_pWindow->wlSurface()->resource())))
         return false;
 
@@ -254,13 +273,34 @@ void CHyprWindowDecorator::onTouchMove([[maybe_unused]] Event::SCallbackInfo &in
 
     if (!m_bDraggingThis)
     {
-        // Initial setup for dragging a window.
-        g_pKeybindManager->m_dispatchers["setfloating"]("activewindow");
-        g_pKeybindManager->m_dispatchers["resizewindowpixel"]("exact 50% 50%,activewindow");
-        // pin it so you can change workspaces while dragging a window
-        g_pKeybindManager->m_dispatchers["pin"]("activewindow");
+        // Initial setup for dragging a window. One eval, because the calls are ordered:
+        // float, size to half the monitor, then pin so the workspace can be changed
+        // mid-drag. `setfloating` was the legacy name for this; `float { action =
+        // "enable" }` is the Lua equivalent and, unlike a bare toggle, cannot un-float a
+        // window that is already floating.
+        //
+        // The interactive grab is `hl.dsp.window.drag()`, which arms Hyprland's own
+        // movewindow mouse bind and takes no argument table at all.
+        //
+        // Sizing replaces the old "exact 50% 50%". resize needs BOTH x and y (it rejects
+        // an x or y it cannot read), and takes an absolute target size in window units,
+        // so the half-monitor size is computed here. A 0-arg resize would arm a
+        // mouse-resize grab instead of sizing the window.
+        const auto PMONITOR = Desktop::focusState()->monitor();
+        const auto W        = PMONITOR ? (PMONITOR->m_size.x * 0.5) / PMONITOR->m_scale : 0.0;
+        const auto H        = PMONITOR ? (PMONITOR->m_size.y * 0.5) / PMONITOR->m_scale : 0.0;
+
+        const std::string TARGET = luaWindowSelector(m_pWindow.lock());
+        dispatchLuaSync("drag-start", std::format("hl.dispatch(hl.dsp.window.float({{ action = \"enable\", window = hl.get_window(\"{0}\") }})) "
+                                                  "hl.dispatch(hl.dsp.window.resize({{ x = {1}, y = {2}, window = hl.get_window(\"{0}\") }})) "
+                                                  "hl.dispatch(hl.dsp.window.pin({{ window = hl.get_window(\"{0}\") }})) "
+                                                  "hl.dispatch(hl.dsp.window.drag())",
+                                                  TARGET, (int)W, (int)H));
     }
-    g_pKeybindManager->m_dispatchers["movewindowpixel"](std::format("exact {} {},activewindow", (int)(COORDS.x - (assignedBoxGlobal().w / 2)), (int)COORDS.y));
+    // Follow the finger. `movewindowpixel exact x y` maps onto move's absolute x/y form:
+    // position is the target position, which is what the cursor-centred coords compute.
+    dispatchLuaSync("drag-move", std::format("hl.dispatch(hl.dsp.window.move({{ x = {}, y = {}, window = hl.get_window(\"{}\") }}))",
+                                             (int)(COORDS.x - (assignedBoxGlobal().w / 2)), (int)COORDS.y, luaWindowSelector(m_pWindow.lock())));
     m_bDraggingThis = true;
 }
 
@@ -289,8 +329,9 @@ void CHyprWindowDecorator::handleDownEvent(Event::SCallbackInfo &info, std::opti
         if (m_bDraggingThis)
         {
             if (m_bTouchEv)
-                g_pKeybindManager->m_dispatchers["settiled"]("activewindow");
-            g_pKeybindManager->m_dispatchers["mouse"]("0movewindow");
+                dispatchLuaSync("drag-tile", std::format("hl.dispatch(hl.dsp.window.float({{ action = \"disable\", window = hl.get_window(\"{}\") }}))",
+                                                         luaWindowSelector(m_pWindow.lock())));
+            dispatchLuaSync("drag-release", "hl.dispatch(hl.dsp.window.drag())");
         }
 
         m_bDraggingThis = false;
@@ -306,7 +347,7 @@ void CHyprWindowDecorator::handleDownEvent(Event::SCallbackInfo &info, std::opti
     if (Desktop::focusState()->window() != PWINDOW)
         Desktop::focusState()->fullWindowFocus(PWINDOW, Desktop::FOCUS_REASON_CLICK);
 
-    if (PWINDOW->m_isFloating)
+    if (PWINDOW->isFloating())
         Desktop::windowState()->raise(PWINDOW);
 
     // An interactive element under the pointer takes the press: show the pressed art
@@ -330,7 +371,7 @@ void CHyprWindowDecorator::handleDownEvent(Event::SCallbackInfo &info, std::opti
     if (!ON_DOUBLE_CLICK.empty() &&
         std::chrono::duration_cast<std::chrono::milliseconds>(Time::steadyNow() - m_lastMouseDown).count() < 400 /* Arbitrary delay I found suitable */)
     {
-        g_pKeybindManager->m_dispatchers["exec"](ON_DOUBLE_CLICK);
+        dispatchLua("double-click", std::format("hl.dispatch(hl.dsp.exec_cmd({}))", luaQuote(ON_DOUBLE_CLICK)));
         m_bDragPending = false;
     }
     else
@@ -352,10 +393,11 @@ void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
 
     if (m_bDraggingThis)
     {
-        g_pKeybindManager->m_dispatchers["mouse"]("0movewindow");
+        dispatchLuaSync("drag-release", "hl.dispatch(hl.dsp.window.drag())");
         m_bDraggingThis = false;
         if (m_bTouchEv)
-            g_pKeybindManager->m_dispatchers["settiled"]("activewindow");
+            dispatchLuaSync("drag-tile", std::format("hl.dispatch(hl.dsp.window.float({{ action = \"disable\", window = hl.get_window(\"{}\") }}))",
+                                                     luaWindowSelector(m_pWindow.lock())));
     }
 
     m_bDragPending = false;
@@ -378,18 +420,117 @@ void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
     {
         if (indexToButton(cursorRelativeToBar()) == m_iButtonPressedIdx)
         {
-            g_pKeybindManager->m_dispatchers["exec"](gPlugin->m_vButtons[m_iButtonPressedIdx].cmd);
+            dispatchLua("button", std::format("hl.dispatch(hl.dsp.exec_cmd({}))", luaQuote(gPlugin->m_vButtons[m_iButtonPressedIdx].cmd)));
         }
         m_iButtonPressedIdx = -1;
         damageEntire();
     }
 }
 
+// A `maximize` toggle is THREE states, and the decorator state already tells which one a
+// press should land on: tiled -> maximise, maximised -> restore, fullscreen -> restore
+// (then a second press maximises). Deciding that here is what keeps `maximize` from being
+// "go to state 1" with no way back. Both modes report maximised.
+//
+// Returns the mode as the Lua dispatcher names it, because fullscreen's `mode` field is a
+// string ("maximized" / "fullscreen"). An earlier version returned the legacy "1,0" and
+// the two were compared against each other, which silently never matched.
+static const char *maximizeTarget(const PHLWINDOW &PWINDOW)
+{
+    // Tiled / normal floating -> maximise. Already maximised or fullscreen -> leave it.
+    // The "leave" case is expressed as action = "unset", which is why this returns the
+    // mode name only for the forward direction.
+    if (!PWINDOW)
+        return "maximized";
+
+    const auto FS = Fullscreen::controller()->getFullscreenModes(PWINDOW);
+    if (FS.internal == Fullscreen::FSMODE_MAXIMIZED || FS.internal == Fullscreen::FSMODE_FULLSCREEN)
+        return "";
+
+    return "maximized";
+}
+
+// ---------------------------------------------------------------------------
+// Dispatchers. This Hyprland runs a Lua config, so `hyprctl dispatch` takes LUA and the
+// legacy names (`closewindow`, `movetoworkspacesilent …`, `fullscreenstate 1,0`) are
+// rejected with "expected a dispatcher (e.g. hl.dsp.window.close())". A rejected call is
+// a silent no-op, which is why the eye did nothing before it was converted.
+//
+// Every call follows the same path: build the Lua source, schedule it on the event loop,
+// then evaluate it against Hyprland's own Lua state. Evaluating inline would run Lua
+// re-entrantly from inside a pointer event, which the repo rules forbid, and every
+// dispatcher below addresses its window EXPLICITLY, so a delay cannot retarget it.
+//
+// The argument shapes are taken from the 0.56.2 sources, not guessed:
+//   window.close({ window? })
+//   window.float({ action?, window? })              action: toggle|enable|disable
+//   window.pin({ action?, window? })
+//   window.fullscreen({ action?, window?, mode?, layout_aware? })
+//   window.move({ workspace = <selector>, follow?, window? })
+//   window.move({ x, y, relative?, window? })
+//   window.drag()                                    no argument table at all
+//   window.resize({ x, y, relative?, window? })      needs BOTH x and y
+//   exec_cmd(cmd)
+// ---------------------------------------------------------------------------
+static std::string luaWindowSelector(const PHLWINDOW &PWINDOW)
+{
+    return std::format("address:0x{:x}", (uintptr_t)PWINDOW.get());
+}
+
+// A Lua long-bracket string. User-configured commands contain quotes, `$` and
+// backslashes often enough that %q-style escaping would be a bug waiting to happen; a
+// long bracket copies bytes verbatim. The bracket level is raised until the closing
+// sequence cannot appear inside the text: [[ ]] , then [=[ ]=] , then [==[ ]==] ...
+static std::string luaQuote(const std::string &TEXT)
+{
+    for (size_t LEVEL = 0;; LEVEL++)
+    {
+        const auto EQ = std::string(LEVEL, '=');
+        if (!TEXT.contains(std::format("]{}]", EQ)))
+            return std::format("[{0}[{1}]{0}]", EQ, TEXT);
+    }
+}
+
+// `what` names the caller for the log, so a failing dispatch is attributable.
+static void dispatchLua(const std::string &what, const std::string &code)
+{
+    Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] action \"{}\": deferred lua dispatch of \"{}\"", what, code));
+
+    g_pEventLoopManager->doLater([what, code]() {
+        auto *const MGR = dynamic_cast<Config::Lua::CConfigManager *>(Config::mgr().get());
+        if (!MGR)
+        {
+            Log::logger->log(Log::ERR, std::format("[HYPRDECOR] action \"{}\": no Lua config manager (not a Lua-config Hyprland)", what));
+            return;
+        }
+
+        // eval() reports the Lua error instead of throwing; dropping it would put us
+        // back to the silent no-op this conversion exists to remove.
+        if (const auto ERR = MGR->eval(code); ERR)
+            Log::logger->log(Log::ERR, std::format("[HYPRDECOR] action \"{}\": lua dispatch failed: {}", what, *ERR));
+    });
+}
+
+// Synchronous variant for gestures, where ordering against the pointer matters: the
+// drag must be armed before the next motion event arrives. Only the pointer path uses
+// it; see the note at the call site.
+static void dispatchLuaSync(const std::string &what, const std::string &code)
+{
+    Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] gesture \"{}\": lua dispatch of \"{}\"", what, code));
+
+    auto *const MGR = dynamic_cast<Config::Lua::CConfigManager *>(Config::mgr().get());
+    if (!MGR)
+    {
+        Log::logger->log(Log::ERR, std::format("[HYPRDECOR] gesture \"{}\": no Lua config manager (not a Lua-config Hyprland)", what));
+        return;
+    }
+
+    if (const auto ERR = MGR->eval(code); ERR)
+        Log::logger->log(Log::ERR, std::format("[HYPRDECOR] gesture \"{}\": lua dispatch failed: {}", what, *ERR));
+}
+
 // Runs an element's action. Named actions only: the plugin asks Hyprland to do
 // something, it never launches anything (ROADMAP D2).
-//
-// The click handler focuses this window before taking the press, so "activewindow" is
-// the right target for every dispatcher here.
 static const char *elementActionName(const SElement::eAction action)
 {
     switch (action)
@@ -399,6 +540,8 @@ static const char *elementActionName(const SElement::eAction action)
         case SElement::eAction::Fullscreen: return "fullscreen";
         case SElement::eAction::Pin: return "pin";
         case SElement::eAction::Float: return "float";
+        case SElement::eAction::Minimize: return "minimize";
+        case SElement::eAction::RetroFilter: return "retro_filter";
         default: return "none";
     }
 }
@@ -413,56 +556,111 @@ void CHyprWindowDecorator::runElementAction(const size_t index)
     if (!PWINDOW)
         return;
 
-    // A dispatcher name that this Hyprland does not register would otherwise be a
-    // silent no-op: the button looks alive and nothing happens. Report it once per
-    // action instead, so a wrong name is visible rather than mysterious.
-    const auto RUN = [&](const char *name, const std::string &args) {
-        const auto IT = g_pKeybindManager->m_dispatchers.find(name);
-        if (IT == g_pKeybindManager->m_dispatchers.end())
-        {
-            Log::logger->log(Log::ERR, std::format("[HYPRDECOR] action \"{}\" needs dispatcher \"{}\", which this Hyprland does not register",
-                                                   elementActionName(ELEMENT.cfg.action), name));
-            return;
-        }
-
-        // Log the exact call: when a dispatcher exists but rejects its arguments it
-        // returns without complaint, and an unlogged silent no-op is undebuggable.
-        Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] action \"{}\": dispatch \"{}\" (\"{}\")",
-                                                elementActionName(ELEMENT.cfg.action), name, args));
-        IT->second(args);
-    };
+    // Every action below addresses this window explicitly instead of relying on
+    // "activewindow": the press handler does focus the window first, but the dispatch
+    // is deferred to the event loop and focus can move in between.
+    const std::string TARGET = luaWindowSelector(PWINDOW);
+    const std::string WHAT   = elementActionName(ELEMENT.cfg.action);
 
     switch (ELEMENT.cfg.action)
     {
         case SElement::eAction::None: return;
 
-        case SElement::eAction::Close: RUN("closewindow", "activewindow"); return;
+        case SElement::eAction::Close:
+            dispatchLua(WHAT, std::format("hl.dispatch(hl.dsp.window.close({{ window = hl.get_window(\"{}\") }}))", TARGET));
+            return;
 
         // Fullscreen::eFullscreenMode is NONE=0, MAXIMIZED=1, FULLSCREEN=2. Using 0 for
         // "maximise" actually means "leave fullscreen", and 1 means "maximise" -- which
         // is why the first attempt appeared to do nothing and the fullscreen button
-        // maximised instead. Two arguments only: the state, then the "already internal"
-        // flag. It acts on the active window, which the press handler has focused.
-        case SElement::eAction::Maximize: RUN("fullscreenstate", "1,0"); return;
+        // maximised instead.
+        //
+        // Toggles, not set-state: a button labelled "maximize" that cannot un-maximize
+        // leaves the user with no way back, and the frame's `_on` art would be a lie.
+        // maximizeTarget() picks the direction: a mode name, or empty to unset.
+        case SElement::eAction::Maximize:
+        {
+            const std::string_view MODE = maximizeTarget(PWINDOW);
+            dispatchLua(WHAT, MODE.empty()
+                                 ? std::format("hl.dispatch(hl.dsp.window.fullscreen({{ action = \"unset\", window = hl.get_window(\"{}\") }}))", TARGET)
+                                 : std::format("hl.dispatch(hl.dsp.window.fullscreen({{ action = \"set\", mode = \"{}\", window = hl.get_window(\"{}\") }}))", MODE, TARGET));
+            return;
+        }
 
-        case SElement::eAction::Fullscreen: RUN("fullscreenstate", "2,0"); return;
-
-        case SElement::eAction::Pin:
-            // Pinning a TILED window makes Hyprland complain and does nothing useful, so
-            // float first. Verified behaviour (AGENTS.md): pin requires floating.
-            if (!PWINDOW->m_isFloating)
-                RUN("setfloating", "activewindow");
-            RUN("pin", "activewindow");
+        case SElement::eAction::Fullscreen:
+            dispatchLua(WHAT, std::format("hl.dispatch(hl.dsp.window.fullscreen({{ action = \"set\", mode = \"{}\", window = hl.get_window(\"{}\") }}))",
+                                          Fullscreen::controller()->getFullscreenModes(PWINDOW).internal == Fullscreen::FSMODE_FULLSCREEN ? "fullscreen" : "maximized",
+                                          TARGET));
             return;
 
-        case SElement::eAction::Float: RUN("togglefloating", "activewindow"); return;
+        case SElement::eAction::Pin:
+        {
+            // Pinning a TILED window makes Hyprland complain and does nothing useful, so
+            // float first. Verified behaviour (AGENTS.md): pin requires floating.
+            // Both calls go in ONE eval, so the float cannot land after the pin.
+            const std::string CODE = std::format("{}{}hl.dispatch(hl.dsp.window.pin({{ window = hl.get_window(\"{}\") }}))",
+                                                 PWINDOW->isFloating() ? "" : std::format("hl.dispatch(hl.dsp.window.float({{ action = \"enable\", window = hl.get_window(\"{}\") }})) ", TARGET),
+                                                 TARGET, TARGET);
+            dispatchLua(WHAT, CODE);
+            return;
+        }
+
+        case SElement::eAction::Float:
+            dispatchLua(WHAT, std::format("hl.dispatch(hl.dsp.window.float({{ window = hl.get_window(\"{}\") }}))", TARGET));
+            return;
+
+        case SElement::eAction::Minimize:
+        {
+            // Project convention: park the window on special:min-<its current workspace>
+            // so the bar can list exactly the windows of the workspace you are on.
+            const auto PW  = m_pWindow.lock();
+            const auto PWS = PW ? PW->m_workspace : nullptr;
+            if (!PWS)
+                return;
+
+            // Already parked (a second click on the eye): do nothing rather than nest
+            // special:min-<special:…>.
+            if (PWS->addressableName().rfind("special:", 0) == 0)
+                return;
+
+            const std::string STASH = std::format("special:min-{}", PWS->addressableName());
+
+            // Form verified in a terminal and confirmed working (AGENTS.md):
+            //     hyprctl dispatch 'hl.dsp.window.move({ workspace = "special:min-2",
+            //                        follow = false, window = hl.get_window("address:0x…") })'
+            // `follow = false` is the "silent" half: focus stays where it is.
+            dispatchLua(WHAT, std::format("hl.dispatch(hl.dsp.window.move({{ workspace = \"{}\", follow = false, window = hl.get_window(\"{}\") }}))",
+                                          STASH, TARGET));
+            return;
+        }
+
+        case SElement::eAction::RetroFilter:
+        {
+            // TEST WIRING: run `hyprshade toggle` and see whether the shader actually
+            // switches. hyprshade applies a shader with
+            //     hyprctl eval "hl.config({ decoration = { screen_shader = '...' } })"
+            // and that is expected NOT to reload the shader on a Lua config (0.56.2
+            // only sets m_reloadScreenShader from the legacy manager). This click is how
+            // we find out for certain instead of trusting that reading.
+            //
+            // Deferred like every other action: spawning a process from inside a pointer
+            // handler is not worth risking. A double fork detaches it so a hanging
+            // hyprshade can never wedge the compositor.
+            g_pEventLoopManager->doLater([]() {
+                Log::logger->log(Log::INFO, "[HYPRDECOR] action \"retro_filter\": running hyprshade toggle");
+
+                if (std::system("hyprshade toggle >/dev/null 2>&1 &") != 0)
+                    Log::logger->log(Log::ERR, "[HYPRDECOR] action \"retro_filter\": could not start hyprshade");
+            });
+            return;
+        }
 
     }
 }
 
 void CHyprWindowDecorator::handleMovement()
 {
-    g_pKeybindManager->m_dispatchers["mouse"]("1movewindow");
+    dispatchLuaSync("drag", "hl.dispatch(hl.dsp.window.drag())");
     m_bDraggingThis = true;
     return;
 }
@@ -723,8 +921,10 @@ Layout::SResult CHyprWindowDecorator::resolveLayout()
     if (const auto W = m_pWindow.lock())
     {
         STATE.focused  = W == Desktop::focusState()->window();
-        STATE.floating = W->m_isFloating;
-        STATE.pinned   = W->m_pinned;
+        STATE.floating = W->isFloating();
+        // 0.57 dropped the per-window `pinned` accessor; the state bit is how Hyprland's
+        // own Actions::pinWindow() reads it.
+        STATE.pinned   = pinnedBit(W);
 
         // isFullscreen takes the mode; MAXIMIZED and FULLSCREEN are distinct states, and
         // a pinned window can report neither even when the dispatcher "succeeded".
@@ -899,8 +1099,8 @@ const SElementTexture &CHyprWindowDecorator::elementTexture(const size_t index, 
     // pressed > hovered > _on > unfocused > active.
     if (const auto W = m_pWindow.lock())
     {
-        const bool ISON = (ELEMENT.cfg.action == SElement::eAction::Pin && W->m_pinned) ||
-                          (ELEMENT.cfg.action == SElement::eAction::Float && W->m_isFloating) ||
+        const bool ISON = (ELEMENT.cfg.action == SElement::eAction::Pin && pinnedBit(W)) ||
+                          (ELEMENT.cfg.action == SElement::eAction::Float && W->isFloating()) ||
                           (ELEMENT.cfg.action == SElement::eAction::Fullscreen &&
                            Fullscreen::controller()->getFullscreenModes(W).internal == Fullscreen::FSMODE_FULLSCREEN);
 
@@ -914,7 +1114,7 @@ const SElementTexture &CHyprWindowDecorator::elementTexture(const size_t index, 
     return ELEMENT.active;
 }
 
-void CHyprWindowDecorator::renderBarTitle(const CBox &band, const float scale)
+void CHyprWindowDecorator::renderBarTitle(Render::CRenderContext &ctx, const CBox &band, const float scale)
 {
     const bool VERTICAL = gPlugin->decoration_title_placement == "left" || gPlugin->decoration_title_placement == "right";
 
@@ -978,7 +1178,10 @@ void CHyprWindowDecorator::renderBarTitle(const CBox &band, const float scale)
     PangoLayout *layout = pango_cairo_create_layout(CAIRO);
     pango_layout_set_text(layout, m_szLastTitle.c_str(), -1);
 
-    PangoFontDescription *fontDesc = pango_font_description_from_string(gPlugin->bar_text_font.c_str());
+    // The font follows focus, like the frame art: an unfocused window gets
+    // `title.font_unfocused` when it is set, and `title.font` otherwise.
+    const std::string &FONT = m_bWindowHasFocus ? gPlugin->bar_text_font : gPlugin->bar_text_font_unfocused;
+    PangoFontDescription *fontDesc = pango_font_description_from_string(FONT.c_str());
     pango_font_description_set_size(fontDesc, scaledSize * PANGO_SCALE);
     pango_layout_set_font_description(layout, fontDesc);
     pango_font_description_free(fontDesc);
@@ -1081,7 +1284,7 @@ bool CHyprWindowDecorator::renderBarButtons(const Vector2D &bufferSize, [[maybe_
     return texturesLoaded;
 }
 
-void CHyprWindowDecorator::renderBarButtonsText(CBox *barBox, const float scale, const float a)
+void CHyprWindowDecorator::renderBarButtonsText(Render::CRenderContext &ctx, CBox *barBox, const float scale, const float a)
 {
     const bool VERTICAL = gPlugin->decoration_title_placement == "left" || gPlugin->decoration_title_placement == "right";
     const auto visibleCount = getVisibleButtonCount(VERTICAL ? Vector2D((double)barBox->height, (double)barBox->width) : Vector2D((double)barBox->width, (double)barBox->height), scale);
@@ -1133,7 +1336,7 @@ void CHyprWindowDecorator::renderBarButtonsText(CBox *barBox, const float scale,
 
         Render::GL::CHyprOpenGLImpl::STextureRenderData data;
         data.a = a;
-        Render::GL::g_pHyprOpenGL->renderTexture(tex, pos, data);
+        Render::GL::g_pHyprOpenGL->renderTexture(ctx, tex, pos, data);
         offset += scaledButtonsPad + (VERTICAL ? scaledButtonSizeY : scaledButtonSizeX);
 
         bool currentBit = (m_iButtonHoverState & (1 << i)) != 0;
@@ -1146,7 +1349,7 @@ void CHyprWindowDecorator::renderBarButtonsText(CBox *barBox, const float scale,
     }
 }
 
-void CHyprWindowDecorator::draw(PHLMONITOR pMonitor, const float &a)
+void CHyprWindowDecorator::draw(Render::CRenderContext &ctx, PHLMONITOR pMonitor, const float &a, const Render::SWindowRenderPresentation &presentation)
 {
     gPlugin->loadAllTextures();
 
@@ -1172,10 +1375,10 @@ void CHyprWindowDecorator::draw(PHLMONITOR pMonitor, const float &a)
     // 0.56 keeps decorations in m_renderPass, a persistent queue consumed when the
     // pass renders. (addPassElement()/inline drawing belong to a newer API.)
     auto data = CRenderPassElement::SBarData{this, pMonitor, a};
-    g_pHyprRenderer->m_renderPass.add(makeUnique<CRenderPassElement>(data));
+    ctx.m_pass.add(makeUnique<CRenderPassElement>(data));
 }
 
-void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
+void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pMonitor, const float &a)
 {
     const auto PWINDOW = m_pWindow.lock();
 
@@ -1185,6 +1388,9 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     {
         m_bWindowHasFocus = windowFocus;
         m_bButtonsDirty = true;
+        // The title texture is keyed on title text and box size only, so a focus change
+        // that swaps `title.font_unfocused` in would otherwise keep the old pixels.
+        m_bForceTitleRerender = true;
         damageEntire();
     }
 
@@ -1194,7 +1400,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     {
         const auto W = m_pWindow.lock();
         const auto FS = Fullscreen::controller()->getFullscreenModes(W);
-        const int  SNAP = (W->m_isFloating ? 1 : 0) | (W->m_pinned ? 2 : 0) | (FS.internal != Fullscreen::FSMODE_NONE ? 4 : 0) |
+        const int  SNAP = (W->isFloating() ? 1 : 0) | (pinnedBit(W) ? 2 : 0) | (FS.internal != Fullscreen::FSMODE_NONE ? 4 : 0) |
                          (FS.internal == Fullscreen::FSMODE_FULLSCREEN ? 8 : 0);
 
         if (SNAP != m_iLastStateSnap)
@@ -1217,7 +1423,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     // area so the frame does not paint over the client surface. Including the border
     // size made it engage even with rounding = 0, which masked the whole frame and
     // left only a black rectangle.
-    const auto ROUNDING = PWINDOW->rounding();
+    const auto ROUNDING = PWINDOW->presentation().rounding();
 
     const auto scaledRounding = ROUNDING > 0 ? ROUNDING * pMonitor->m_scale - 2 /* idk why but otherwise it looks bad due to the gaps */ : 0;
 
@@ -1267,7 +1473,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                                              (m_bWindowHasFocus ? gPlugin->activeNinepatch : gPlugin->inactiveNinepatch).defined ? "yes" : "NO"));
     }
 
-    Render::GL::g_pHyprOpenGL->scissor(titleBarBox);
+    Render::GL::g_pHyprOpenGL->scissor(ctx, titleBarBox);
 
     if (ROUNDING)
     {
@@ -1290,7 +1496,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
         glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 
         windowBox.scale(pMonitor->m_scale).round();
-        Render::GL::g_pHyprOpenGL->renderRect(windowBox, CHyprColor(0, 0, 0, 0), {.round = (int)scaledRounding, .roundingPower = m_pWindow->roundingPower()});
+        Render::GL::g_pHyprOpenGL->renderRect(ctx, windowBox, CHyprColor(0, 0, 0, 0), {.round = (int)scaledRounding, .roundingPower = m_pWindow->presentation().roundingPower()});
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
         glStencilFunc(GL_NOTEQUAL, 1, -1);
@@ -1380,14 +1586,14 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
         }
         Render::GL::CHyprOpenGLImpl::STextureRenderData data;
         data.a = a;
-        Render::GL::g_pHyprOpenGL->renderTexture(m_pBarFinalTex, titleBarBox, data);
+        Render::GL::g_pHyprOpenGL->renderTexture(ctx, m_pBarFinalTex, titleBarBox, data);
     }
     else
     {
         if (SHOULDBLUR)
-            Render::GL::g_pHyprOpenGL->renderRect(titleBarBox, color, {.round = (int)scaledRounding, .roundingPower = m_pWindow->roundingPower(), .blur = true, .blurA = a});
+            Render::GL::g_pHyprOpenGL->renderRect(ctx, titleBarBox, color, {.round = (int)scaledRounding, .roundingPower = m_pWindow->presentation().roundingPower(), .blur = true, .blurA = a});
         else
-            Render::GL::g_pHyprOpenGL->renderRect(titleBarBox, color, {.round = (int)scaledRounding, .roundingPower = m_pWindow->roundingPower()});
+            Render::GL::g_pHyprOpenGL->renderRect(ctx, titleBarBox, color, {.round = (int)scaledRounding, .roundingPower = m_pWindow->presentation().roundingPower()});
     }
 
     if (m_bWindowSizeChanged)
@@ -1460,13 +1666,13 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                         cellData.primarySurfaceUVTopLeft     = Vector2D(GRID.sx[gi] / SRCW, GRID.sy[gj] / SRCH);
                         cellData.primarySurfaceUVBottomRight = Vector2D(GRID.sx[gi + 1] / SRCW, GRID.sy[gj + 1] / SRCH);
 
-                        Render::GL::g_pHyprOpenGL->renderTexture(STATE.tex, CBox{X + GRID.dx[gi] * M, Y + GRID.dy[gj] * M, DW * M, DH * M}, cellData);
+                        Render::GL::g_pHyprOpenGL->renderTexture(ctx, STATE.tex, CBox{X + GRID.dx[gi] * M, Y + GRID.dy[gj] * M, DW * M, DH * M}, cellData);
                     }
             }
             else
             {
                 const CBox DEST{titleBarBox.x + item.rect.x * M, titleBarBox.y + item.rect.y * M, item.rect.w * M, item.rect.h * M};
-                Render::GL::g_pHyprOpenGL->renderTexture(STATE.tex, DEST, edata);
+                Render::GL::g_pHyprOpenGL->renderTexture(ctx, STATE.tex, DEST, edata);
             }
 
             (void)DEV;
@@ -1483,13 +1689,13 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
         const double THICK = std::max(1.0, (double)std::round(gPlugin->bar_outline_width * pMonitor->m_scale));
         const CBox &B = titleBarBox;
 
-        const Render::GL::CHyprOpenGLImpl::SRectRenderData RECTDATA{.round = 0, .roundingPower = m_pWindow->roundingPower()};
+        const Render::GL::CHyprOpenGLImpl::SRectRenderData RECTDATA{.round = 0, .roundingPower = m_pWindow->presentation().roundingPower()};
 
         // top, bottom, left, right
-        Render::GL::g_pHyprOpenGL->renderRect(CBox{B.x, B.y, B.w, THICK}, outlineColor, RECTDATA);
-        Render::GL::g_pHyprOpenGL->renderRect(CBox{B.x, B.y + B.h - THICK, B.w, THICK}, outlineColor, RECTDATA);
-        Render::GL::g_pHyprOpenGL->renderRect(CBox{B.x, B.y + THICK, THICK, B.h - 2 * THICK}, outlineColor, RECTDATA);
-        Render::GL::g_pHyprOpenGL->renderRect(CBox{B.x + B.w - THICK, B.y + THICK, THICK, B.h - 2 * THICK}, outlineColor, RECTDATA);
+        Render::GL::g_pHyprOpenGL->renderRect(ctx, CBox{B.x, B.y, B.w, THICK}, outlineColor, RECTDATA);
+        Render::GL::g_pHyprOpenGL->renderRect(ctx, CBox{B.x, B.y + B.h - THICK, B.w, THICK}, outlineColor, RECTDATA);
+        Render::GL::g_pHyprOpenGL->renderRect(ctx, CBox{B.x, B.y + THICK, THICK, B.h - 2 * THICK}, outlineColor, RECTDATA);
+        Render::GL::g_pHyprOpenGL->renderRect(ctx, CBox{B.x + B.w - THICK, B.y + THICK, THICK, B.h - 2 * THICK}, outlineColor, RECTDATA);
     }
 
     // The title band comes from the SAME layout pass as the elements, in logical px,
@@ -1513,7 +1719,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     // render app icon
     if (gPlugin->decoration_appicon_enabled)
     {
-        std::string appId = PWINDOW->m_initialClass;
+        std::string appId = PWINDOW->metadata().initialAppID();
 
         int iconSizeDesired = (int)(std::max(topBarBox.width, topBarBox.height) * 0.6); // Reasonable size check
         if (gPlugin->decoration_title_placement == "top" || gPlugin->decoration_title_placement == "bottom")
@@ -1551,7 +1757,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
             }
             Render::GL::CHyprOpenGLImpl::STextureRenderData data;
             data.a = a;
-            Render::GL::g_pHyprOpenGL->renderTexture(m_pAppIconTex, iconBox, data);
+            Render::GL::g_pHyprOpenGL->renderTexture(ctx, m_pAppIconTex, iconBox, data);
         }
     }
 
@@ -1564,10 +1770,10 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     const Vector2D TEXTWANT{(double)TITLEBOX.width, (double)TITLEBOX.height};
 
     if (gPlugin->decoration_title_enabled &&
-        (m_szLastTitle != PWINDOW->m_title || m_bWindowSizeChanged || m_pTextTex->m_texID == 0 || m_bTitleColorChanged || m_pTextTex->m_size != TEXTWANT))
+        (m_szLastTitle != PWINDOW->metadata().title() || m_bWindowSizeChanged || m_pTextTex->m_texID == 0 || m_bTitleColorChanged || m_bForceTitleRerender || m_pTextTex->m_size != TEXTWANT))
     {
-        m_szLastTitle = PWINDOW->m_title;
-        renderBarTitle(topBarBox, pMonitor->m_scale);
+        m_szLastTitle = PWINDOW->metadata().title();
+        renderBarTitle(ctx, topBarBox, pMonitor->m_scale);
     }
 
     if (ROUNDING)
@@ -1618,7 +1824,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
                     cell.primarySurfaceUVTopLeft         = Vector2D(GRID.sx[gi] / gPlugin->m_titleBgSize.x, GRID.sy[gj] / gPlugin->m_titleBgSize.y);
                     cell.primarySurfaceUVBottomRight     = Vector2D(GRID.sx[gi + 1] / gPlugin->m_titleBgSize.x, GRID.sy[gj + 1] / gPlugin->m_titleBgSize.y);
 
-                    Render::GL::g_pHyprOpenGL->renderTexture(BGTEX, CBox{TITLEBOX.x + GRID.dx[gi], TITLEBOX.y + GRID.dy[gj], DW, DH}, cell);
+                    Render::GL::g_pHyprOpenGL->renderTexture(ctx, BGTEX, CBox{TITLEBOX.x + GRID.dx[gi], TITLEBOX.y + GRID.dy[gj], DW, DH}, cell);
                 }
         }
 
@@ -1628,7 +1834,7 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
             CBox textBox = {TITLEBOX.x, TITLEBOX.y, (double)m_pTextTex->m_size.x, (double)m_pTextTex->m_size.y};
             Render::GL::CHyprOpenGLImpl::STextureRenderData data;
             data.a = a;
-            Render::GL::g_pHyprOpenGL->renderTexture(m_pTextTex, textBox, data);
+            Render::GL::g_pHyprOpenGL->renderTexture(ctx, m_pTextTex, textBox, data);
         }
     }
 
@@ -1645,15 +1851,16 @@ void CHyprWindowDecorator::renderPass(PHLMONITOR pMonitor, const float &a)
     {
         Render::GL::CHyprOpenGLImpl::STextureRenderData data;
         data.a = a;
-        Render::GL::g_pHyprOpenGL->renderTexture(m_pButtonsTex, topBarBox, data);
+        Render::GL::g_pHyprOpenGL->renderTexture(ctx, m_pButtonsTex, topBarBox, data);
     }
 
-    Render::GL::g_pHyprOpenGL->scissor(nullptr);
+    Render::GL::g_pHyprOpenGL->disableScissor();
 
-    renderBarButtonsText(&topBarBox, pMonitor->m_scale, a);
+    renderBarButtonsText(ctx, &topBarBox, pMonitor->m_scale, a);
 
     m_bWindowSizeChanged = false;
     m_bTitleColorChanged = false;
+    m_bForceTitleRerender = false;
     m_bButtonsDirty = false;
 
     // The extents changed, so the layout must be recalculated -- but NEVER from inside
@@ -1746,9 +1953,11 @@ CBox CHyprWindowDecorator::assignedBoxGlobal()
                 PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x + INFO.desiredExtents.topLeft.x + INFO.desiredExtents.bottomRight.x,
                 PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y + INFO.desiredExtents.topLeft.y + INFO.desiredExtents.bottomRight.y};
 
-    const auto PWORKSPACE = PWINDOW->m_workspace;
-    if (PWORKSPACE && !PWINDOW->m_pinned)
-        box.translate(PWORKSPACE->m_renderOffset->value());
+    // 0.57 removed the workspace render-offset member: workspace animation is applied by
+    // the presentation system, and draw() receives the result in
+    // SWindowRenderPresentation (floatingOffset etc). Nothing to translate here any more.
+    // The old guard also skipped the offset for pinned windows; that concept moved to
+    // presentation().pinned and no longer affects this geometry.
 
     return box;
 }
@@ -1791,6 +2000,7 @@ void CHyprWindowDecorator::invalidateTextures()
     m_bWindowSizeChanged = true;
     m_bButtonsDirty = true;
     m_bTitleColorChanged = true;
+    m_bForceTitleRerender = true;
     m_bNinePatchChanged = true;
     m_szLastTitle = ""; // Force title re-render
 

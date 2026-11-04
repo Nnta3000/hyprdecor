@@ -104,6 +104,17 @@ struct SElement
         Fullscreen,
         Pin,
         Float,
+        // Parks the window on special:min-<its workspace>. Project convention for
+        // "minimise"; Hyprland has no native minimised state (see AGENTS.md).
+        Minimize,
+        // Runs `hyprshade toggle`, flipping the global screen shader on and off.
+        //
+        // This is the ONE action that runs an external program. Everything else here
+        // asks Hyprland to do something, deliberately (ROADMAP D2), and this exception
+        // exists because a screen shader can only be switched by changing a config value
+        // and then setting the renderer's reload flag -- which hyprshade already knows
+        // how to do, and the plugin has no business duplicating.
+        RetroFilter,
     };
 
     eAction action = eAction::None;
@@ -189,6 +200,9 @@ struct SConfig
     bool        titleEnabled   = true;
     int         titleSize      = 10;
     std::string titleFont      = "Sans";
+    // Font for the title while the window is NOT focused. Empty = use titleFont, so an
+    // existing config renders exactly as before.
+    std::string titleFontUnfocused;
     std::string titlePlacement = "top";
     uint64_t    textColor      = 0xFFFFFFFF;
     // Padding INSIDE the title box, between its edge and the text.

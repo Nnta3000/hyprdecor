@@ -370,6 +370,16 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             if (FONT)
                 NEXT.titleFont = *FONT;
         }
+        if (hasField(L, TITLE, "font_unfocused"))
+        {
+            const auto FONT = stringField(L, TITLE, "font_unfocused");
+            if (!FONT)
+                return raise(L, "hyprdecor.setup: 'defaults.title.font_unfocused' must be a string");
+            if (FONT->empty())
+                return raise(L, "hyprdecor.setup: 'defaults.title.font_unfocused' must not be empty "
+                                "(omit the key to reuse 'font')");
+            NEXT.titleFontUnfocused = *FONT;
+        }
         if (hasField(L, TITLE, "placement"))
         {
             const auto PLACE = stringField(L, TITLE, "placement");
@@ -663,13 +673,14 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
                     return raise(L, "hyprdecor.setup: 'defaults.elements[{}].action' must be a string", i);
                 static const std::map<std::string, SElement::eAction> ACTIONS = {
                     {"close", SElement::eAction::Close},       {"maximize", SElement::eAction::Maximize}, {"fullscreen", SElement::eAction::Fullscreen},
-                    {"pin", SElement::eAction::Pin},           {"float", SElement::eAction::Float},
+                    {"pin", SElement::eAction::Pin},           {"float", SElement::eAction::Float},       {"minimize", SElement::eAction::Minimize},
+                    {"retro_filter", SElement::eAction::RetroFilter},
                 };
 
                 const auto IT = ACTIONS.find(*ACTION);
                 if (IT == ACTIONS.end())
                     return raise(L, "hyprdecor.setup: 'defaults.elements[{}].action' \"{}\" is not a known action "
-                                    "(close, maximize, fullscreen, pin, float)", i, *ACTION);
+                                    "(close, maximize, fullscreen, pin, float, minimize, retro_filter)", i, *ACTION);
 
                 E.action = IT->second;
 
@@ -749,10 +760,10 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
     // "setup() applied: no" even when the config had clearly taken effect.
     gPlugin->setup_applied = true;
 
-    Log::logger->log(Log::DEBUG, std::format("{}setup(): texture=\"{}\" thickness L{} T{} R{} B{} artScale={} font=\"{}\"",
+    Log::logger->log(Log::DEBUG, std::format("{}setup(): texture=\"{}\" thickness L{} T{} R{} B{} artScale={} font=\"{}\" font_unfocused=\"{}\"",
                                              TAG, gPlugin->cfg.textureBase, gPlugin->cfg.thickness.left, gPlugin->cfg.thickness.top,
                                              gPlugin->cfg.thickness.right, gPlugin->cfg.thickness.bottom, gPlugin->cfg.artScale,
-                                             gPlugin->cfg.titleFont));
+                                             gPlugin->cfg.titleFont, gPlugin->cfg.titleFontUnfocused));
 
     // Deferred: applying the configuration drives layout and damage, which must not
     // happen re-entrantly inside a Lua callback.

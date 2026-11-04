@@ -4,22 +4,25 @@
 #include <hyprland/src/render/gl/GLTexture.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include "hyprWindowDecorator.hpp"
+#include <hyprland/src/config/ConfigManager.hpp>
 
 CRenderPassElement::CRenderPassElement(const CRenderPassElement::SBarData &data_) : data(data_)
 {
     ;
 }
 
-std::vector<UP<IPassElement>> CRenderPassElement::draw()
+std::vector<UP<IPassElement>> CRenderPassElement::draw(Render::CRenderContext &ctx)
 {
-    // 0.56: the monitor being rendered lives in the renderer's render data.
+    // 0.57: the monitor being rendered lives in the context handed to draw(), not in a
+    // global renderer field. Keeping it here means every draw call below can pass `ctx`
+    // straight through.
     if (data.deco && g_pHyprRenderer)
-        data.deco->renderPass(g_pHyprRenderer->m_renderData.pMonitor.lock(), data.a);
+        data.deco->renderPass(ctx, data.pMonitor, data.a);
 
     return {};
 }
 
-bool CRenderPassElement::needsLiveBlur()
+bool CRenderPassElement::needsLiveBlur([[maybe_unused]] Render::CRenderContext &ctx)
 {
     if (!data.deco || !gPlugin)
         return false;
@@ -27,15 +30,13 @@ bool CRenderPassElement::needsLiveBlur()
     // Never assume the config value exists: getConfigValue() returns nullptr when
     // the option is unregistered or the config manager is not committed yet, and
     // this runs on every frame.
-    const auto VALUE = HyprlandAPI::getConfigValue(gPlugin->m_pHandle, "decoration:blur:enabled");
-    if (!VALUE)
+    // 0.57 deprecates HyprlandAPI::getConfigValue in favour of the config manager's
+    // typed reply, which also avoids Hyprlang internals leaking into the plugin.
+    const auto REPLY = Config::mgr()->getConfigValue("decoration:blur:enabled");
+    if (!REPLY.dataptr || !*REPLY.dataptr)
         return false;
 
-    const auto PTR = (Hyprlang::INT *const *)VALUE->getDataStaticPtr();
-    if (!PTR || !*PTR)
-        return false;
-
-    if (!**PTR)
+    if (!*(const bool *)*REPLY.dataptr)
         return false;
 
     CHyprColor color = data.deco->m_bForcedBarColor.value_or(gPlugin->bar_color);
@@ -43,12 +44,12 @@ bool CRenderPassElement::needsLiveBlur()
     return gPlugin->bar_blur && color.a < 1.F;
 }
 
-std::optional<CBox> CRenderPassElement::boundingBox()
+std::optional<CBox> CRenderPassElement::boundingBox(Render::CRenderContext &ctx)
 {
     if (!data.deco || !g_pHyprRenderer)
         return std::nullopt;
 
-    const auto PMONITOR = g_pHyprRenderer->m_renderData.pMonitor.lock();
+    const auto PMONITOR = ctx.m_data.pMonitor.lock();
     if (!PMONITOR)
         return std::nullopt;
 
@@ -56,7 +57,7 @@ std::optional<CBox> CRenderPassElement::boundingBox()
     return data.deco->assignedBoxGlobal().translate(-PMONITOR->m_position).expand(10);
 }
 
-bool CRenderPassElement::needsPrecomputeBlur()
+bool CRenderPassElement::needsPrecomputeBlur([[maybe_unused]] Render::CRenderContext &ctx)
 {
     return false;
 }
