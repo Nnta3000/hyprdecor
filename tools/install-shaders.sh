@@ -25,6 +25,14 @@ PALETTE="${1:-$REPO/../orange-palette-q3.png}"
 DEST="${HYPRSHADE_SHADERS_DIR:-$HOME/.config/hypr/shaders}"
 KEY_BITS="${KEY_BITS:-3}"
 
+# PIXEL_SIZE is a BLOCK SIZE IN SCREEN PIXELS, not a resolution multiplier:
+#   1 = one sample per screen pixel -- palette quantisation only, no visible pixelation
+#   2 = one sample per 2x2 block   -- the "half resolution" look
+#   4 = chunky, clearly retro
+# 2 and 4 are the defaults because 1 does not read as pixel art at all.
+FULL_PS="${FULL_PS:-2}"
+HALF_PS="${HALF_PS:-4}"
+
 if [ ! -x "$GEN" ]; then
     echo "install-shaders: palette-gen not built at $GEN" >&2
     echo "  build it: cd $REPO && cmake --build build --target palette-gen" >&2
@@ -41,11 +49,11 @@ mkdir -p "$DEST"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-for PS in 1 2; do
-    "$GEN" --palette "$PALETTE" --out-dir "$TMP/ps$PS" --key-bits "$KEY_BITS" --pixel-size "$PS" >/dev/null
-
-    if [ "$PS" = "1" ]; then NAME="palette_dither";      else NAME="palette_dither_half"; fi
-    cp "$TMP/ps$PS/palette_dither.frag" "$DEST/$NAME.frag"
+for SPEC in "palette_dither:$FULL_PS" "palette_dither_half:$HALF_PS"; do
+    NAME="${SPEC%%:*}"
+    PS="${SPEC##*:}"
+    "$GEN" --palette "$PALETTE" --out-dir "$TMP/$NAME" --key-bits "$KEY_BITS" --pixel-size "$PS" >/dev/null
+    cp "$TMP/$NAME/palette_dither.frag" "$DEST/$NAME.frag"
 
     # A shader that does not compile blanks the screen, so refuse to install one.
     if command -v glslangValidator >/dev/null 2>&1; then
@@ -60,4 +68,4 @@ done
 echo "install-shaders: installed to $DEST"
 ls -1 "$DEST"/palette_dither*.frag
 echo
-echo "cycle in the bar:  off -> palette_dither -> palette_dither_half -> off"
+echo "cycle in the bar:  off -> palette_dither (${FULL_PS}x${FULL_PS}) -> palette_dither_half (${HALF_PS}x${HALF_PS}) -> off"
