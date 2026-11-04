@@ -111,6 +111,7 @@ hl.plugin.load("/absolute/path/to/build/hyprdecor.so")
 
 hl.plugin.hyprdecor.setup({
   defaults = {
+    scale  = 2,   -- one number: frame art and every element (see `defaults.scale`)
     border = {
       -- base path, no extension: resolves frame_active.png / frame_inactive.png
       texture = "/absolute/path/to/assets/xp/frame",
@@ -125,6 +126,10 @@ development:
 ```lua
 hl.plugin.hyprdecor.setup({
   defaults = {
+    -- One number for the whole frame: scales the frame art AND every element that does
+    -- not set its own `scale`. Per-element `scale` wins over this.
+    scale = 2,
+
     border = {
       texture          = "/absolute/path/to/frame",
       linear_filtering = false,   -- false = crisp pixels (nearest-neighbour)
@@ -135,6 +140,7 @@ hl.plugin.hyprdecor.setup({
       enabled = true,
       size    = 13,
       font    = "Sans",
+      font_unfocused = "OrangeFont", -- optional: title font when the window is unfocused
       mode    = "fill",           -- the title fills the space between the elements
       align   = "left",           -- left | centre | right, inside its box
       text_offset_x = 9,
@@ -172,9 +178,10 @@ the source (`src/luaApi.cpp`); the target syntax is in [docs/SPEC.md](docs/SPEC.
 
 | Key | Description |
 |---|---|
+| `defaults.scale` | **Global** integer scale: applies to the frame art AND every element that does not set its own `scale`. Per-element `scale` and `border.scale` override it. |
 | `texture` | Base path of the frame images, no extension. Required. |
 | `linear_filtering` | `true` smooth scaling, `false` nearest-neighbour. Use `false` for pixel art. |
-| `scale` | Integer scale of the frame art (2 = pixel art at 2x). The space the frame reserves around the window scales with it. |
+| `scale` | Integer scale of the frame art (2 = pixel art at 2x). The space the frame reserves around the window scales with it. Overrides `defaults.scale` for the frame. |
 | `thickness` | Optional override of the reserved space per side. Leave it out and the nine-patch markers decide, which is usually right. |
 
 The frame is one nine-patch drawn over the whole decoration box, so corners stay
@@ -194,6 +201,7 @@ padding markers, falling back to the border sizes. See [docs/ninepatch.md](docs/
 |---|---|
 | `enabled` | Draw the window title. |
 | `size`, `font` | Font size in points and a Pango font family (for example `"Sans"`). |
+| `font_unfocused` | Font family for the title while the window is not focused. Optional; omit it to keep using `font`. Swapped like `frame_inactive`, so the title is re-rendered on focus change. |
 | `mode` | `"fill"`: the title spans what the elements leave free. `"box"`: the title is placed like an element. |
 | `gap` | Fill mode: `{ left, right, top, bottom }`. Left and right are the distance from neighbouring elements; top and bottom inset the box from the band edges. |
 | `align` | `left`, `centre` or `right`, inside the title box. |
@@ -210,7 +218,7 @@ A list of images placed in the top band and drawn in order.
 | `image` | Absolute path to a png. |
 | `anchor` | `"top-left"`, `"top-centre"` or `"top-right"`. |
 | `offset_x`, `offset_y` | Distance from the anchor, in logical pixels. |
-| `scale` | Integer scale for this image. |
+| `scale` | Integer scale for this image. Overrides `defaults.scale`. |
 | `linear_filtering` | Overrides the frame's filtering for this image. |
 | `interactive` | Reacts to the pointer: enables the `_hovered` and `_pressed` images. |
 
@@ -239,6 +247,14 @@ Three window-rule effects are registered:
 The syntax for writing these as Lua window rules has not been verified yet (it is on the
 [roadmap](ROADMAP.md)). An invalid rule aborts the whole config, so try it in a throwaway
 config first.
+
+**Element actions** (`defaults.elements[i].action`) are `close`, `maximize`, `fullscreen`,
+`pin`, `float` and `minimize`. Setting one makes the element interactive on its own, so `_hovered` and
+`_pressed` art are picked up without listing `interactive = true`. `maximize` and
+`fullscreen` are **toggles**: pressing again restores the tiled size, and the `_on` art is
+shown while the window is maximised or fullscreen. An element with **no** `action` is
+decoration only: it never hovers, never takes a press, and a click on it drags the window
+like the rest of the band.
 
 ---
 

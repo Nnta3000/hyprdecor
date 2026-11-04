@@ -163,6 +163,12 @@ struct SConfig
     // Independent of the monitor scale and of any future title.scale.
     int artScale = 1;
 
+    // `defaults.scale`: one number that scales EVERYTHING - the frame, and every element
+    // that does not set its own. 0 means "not set", so an explicit per-element
+    // `scale` can be distinguished from "inherit". Resolved at setup() time, not at
+    // draw time, so the layout pass always sees a concrete number.
+    int defaultScale = 0;
+
     bool   linearFiltering = true;
     bool   repeat          = false;
 

@@ -49,6 +49,8 @@ hl.plugin.hyprdecor.setup({
   defaults = {
 
     -- One nine-patch, drawn over the whole decoration box. Never split per side.
+    -- `defaults.scale` (below) applies to EVERYTHING - frame and elements alike - and
+    -- any specific `scale` overrides it. frame.scale scales the frame ART only.
     frame = {
       texture = "/assets/orange/frame",  -- resolves frame_active.png / _inactive / plain
       scale   = 2,                       -- scales the ART only
@@ -173,9 +175,27 @@ dimension is the natural size times `scale` for images and buttons; on the cross
 right, bottom }` adds space around an item inside the flow. With `cross_align`, this places a
 short title strip inside a taller band without any vertical "gap":
 `{ type = "title", fill = true, height = 22, cross_align = "start", margin = { top = 6 } }`.
+
+**Global scale.** `defaults.scale = N` scales EVERYTHING: the frame art and every item that
+does not set its own `scale`. Resolution order, highest first:
+
+1. `<item>.scale` / `frame.scale` — that one thing only
+2. `defaults.scale` — the fallback for both
+3. `1`
+
+So `defaults.scale = 2` with one element at `scale = 4` draws that element at 4 and
+everything else at 2. The monitor scale is applied on top, exactly once, as for every other
+length.
 - `button`: an image with states plus an optional `action`. No action means
   hover/pressed art only.
-- Actions: `close`, `maximize`, `fullscreen`, `pin`, `float`.
+- Actions: `close`, `maximize`, `fullscreen`, `pin`, `float`, `minimize`.
+  `minimize` parks the window on `special:min-<its workspace>` (project convention, not
+  a native Hyprland state); the bar lists those windows per workspace.
+  `maximize` and `fullscreen` toggle: a second press restores. They pass only `mode` to
+  the dispatcher, letting Hyprland do the state decision — reading the state here and
+  choosing set/unset duplicated it and made restore fail.
+  `retro_filter` runs `hyprshade toggle <bar.retro_shader>`; it is the only action that
+  starts a process.
   `drag` and `resize` were dropped: they are pointer GESTURES, not clicks, and the
   decorator swallows the press they need. Hyprland already offers both through
   `SUPER + right-drag` / `SUPER + left-drag` and `general:resize_on_border`, so a
