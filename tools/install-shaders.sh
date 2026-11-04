@@ -25,11 +25,10 @@ PALETTE="${1:-$REPO/../orange-palette-q3.png}"
 DEST="${HYPRSHADE_SHADERS_DIR:-$HOME/.config/hypr/shaders}"
 KEY_BITS="${KEY_BITS:-3}"
 
-# PIXEL_SIZE is a BLOCK SIZE IN SCREEN PIXELS, not a resolution multiplier:
-#   1 = one sample per screen pixel -- palette quantisation only, no visible pixelation
-#   2 = one sample per 2x2 block   -- the "half resolution" look
-#   4 = chunky, clearly retro
-# 2 and 4 are the defaults because 1 does not read as pixel art at all.
+# PIXEL_SIZE is the number of SCREEN pixels covered by one dither sample.
+#   1 = full resolution (no downsampling, palette quantisation only)
+#   2 = one sample per 2x2 block ("half resolution")
+# Override with FULL_PS / HALF_PS.
 FULL_PS="${FULL_PS:-2}"
 HALF_PS="${HALF_PS:-4}"
 
