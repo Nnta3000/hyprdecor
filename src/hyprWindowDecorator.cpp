@@ -556,40 +556,21 @@ void CHyprWindowDecorator::runElementAction(const size_t index)
             dispatchLua(WHAT, std::format("hl.dispatch(hl.dsp.window.close({{ window = hl.get_window(\"{}\") }}))", TARGET));
             return;
 
-        // Fullscreen::eFullscreenMode is NONE=0, MAXIMIZED=1, FULLSCREEN=2. Using 0 for
-        // "maximise" actually means "leave fullscreen", and 1 means "maximise" -- which
-        // is why the first attempt appeared to do nothing and the fullscreen button
-        // maximised instead.
+        // Fullscreen::eFullscreenMode is NONE=0, MAXIMIZED=1, FULLSCREEN=2.
         //
-        // Toggles, not set-state: a button labelled "maximize" that cannot un-maximize
-        // leaves the user with no way back, and the frame's `_on` art would be a lie.
+        // No `action` field: that routes to the plain toggle dispatcher, which does
+        // "if isFullscreen(window, mode) -> NONE, else -> mode". Reading the state here
+        // and choosing "set"/"unset" ourselves duplicated that decision, and the two
+        // disagreed once the window was already maximised -- the button would maximise
+        // but never restore. Letting Hyprland make the decision removes the mismatch.
         case SElement::eAction::Maximize:
-        {
-            // Toggle between maximised and normal.
-            //
-            // The `mode` field must be supplied for BOTH directions. It defaults to
-            // "fullscreen", and the dispatcher implements `action = "unset"` as
-            // "if currently <mode>, call fullscreenWindow(<mode>)" -- so omitting it
-            // made the restore half toggle FULLSCREEN instead of un-maximising,
-            // turning this into a one-way switch.
-            const auto FS   = Fullscreen::controller()->getFullscreenModes(PWINDOW);
-            const bool ISON = FS.internal == Fullscreen::FSMODE_MAXIMIZED || FS.internal == Fullscreen::FSMODE_FULLSCREEN;
-
-            dispatchLua(WHAT, std::format("hl.dispatch(hl.dsp.window.fullscreen({{ action = \"{}\", mode = \"maximized\", window = hl.get_window(\"{}\") }}))",
-                                          ISON ? "unset" : "set", TARGET));
+            dispatchLua(WHAT, std::format("hl.dispatch(hl.dsp.window.fullscreen({{ mode = \"maximized\", window = hl.get_window(\"{}\") }}))", TARGET));
             return;
-        }
 
         case SElement::eAction::Fullscreen:
-        {
-            // Same trap as Maximize: `mode` defaults to "fullscreen", and `unset` only
-            // acts on the mode it is given. Passing the mode explicitly keeps both halves
-            // talking about real fullscreen rather than accidentally maximising.
-            const bool ISON = Fullscreen::controller()->getFullscreenModes(PWINDOW).internal == Fullscreen::FSMODE_FULLSCREEN;
-            dispatchLua(WHAT, std::format("hl.dispatch(hl.dsp.window.fullscreen({{ action = \"{}\", mode = \"fullscreen\", window = hl.get_window(\"{}\") }}))",
-                                          ISON ? "unset" : "set", TARGET));
+            // Same as Maximize: no `action`, so Hyprland's own per-mode toggle decides.
+            dispatchLua(WHAT, std::format("hl.dispatch(hl.dsp.window.fullscreen({{ mode = \"fullscreen\", window = hl.get_window(\"{}\") }}))", TARGET));
             return;
-        }
 
         case SElement::eAction::Pin:
         {
