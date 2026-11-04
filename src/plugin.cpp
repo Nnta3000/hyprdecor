@@ -437,6 +437,7 @@ void CPlugin::update()
     decoration_padding       = C.padding;
     bar_button_padding       = C.buttonPadding;
     on_double_click          = C.onDoubleClick;
+    retro_shader             = C.retroShader;
     decoration_appicon_enabled = C.appIconEnabled;
     decoration_appicon_offset  = {C.appIconOffsetX, C.appIconOffsetY};
     decoration_render_above    = C.renderAbove;

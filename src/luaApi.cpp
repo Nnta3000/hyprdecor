@@ -480,6 +480,12 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             if (CMD)
                 NEXT.onDoubleClick = *CMD;
         }
+        if (hasField(L, BAR, "retro_shader"))
+        {
+            const auto NAME = stringField(L, BAR, "retro_shader");
+            if (NAME)
+                NEXT.retroShader = *NAME;
+        }
 
         lua_pop(L, 1);
     }

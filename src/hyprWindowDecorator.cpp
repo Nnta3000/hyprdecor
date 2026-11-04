@@ -435,20 +435,6 @@ void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
 // Returns the mode as the Lua dispatcher names it, because fullscreen's `mode` field is a
 // string ("maximized" / "fullscreen"). An earlier version returned the legacy "1,0" and
 // the two were compared against each other, which silently never matched.
-static const char *maximizeTarget(const PHLWINDOW &PWINDOW)
-{
-    // Tiled / normal floating -> maximise. Already maximised or fullscreen -> leave it.
-    // The "leave" case is expressed as action = "unset", which is why this returns the
-    // mode name only for the forward direction.
-    if (!PWINDOW)
-        return "maximized";
-
-    const auto FS = Fullscreen::controller()->getFullscreenModes(PWINDOW);
-    if (FS.internal == Fullscreen::FSMODE_MAXIMIZED || FS.internal == Fullscreen::FSMODE_FULLSCREEN)
-        return "";
-
-    return "maximized";
-}
 
 // ---------------------------------------------------------------------------
 // Dispatchers. This Hyprland runs a Lua config, so `hyprctl dispatch` takes LUA and the
@@ -577,21 +563,33 @@ void CHyprWindowDecorator::runElementAction(const size_t index)
         //
         // Toggles, not set-state: a button labelled "maximize" that cannot un-maximize
         // leaves the user with no way back, and the frame's `_on` art would be a lie.
-        // maximizeTarget() picks the direction: a mode name, or empty to unset.
         case SElement::eAction::Maximize:
         {
-            const std::string_view MODE = maximizeTarget(PWINDOW);
-            dispatchLua(WHAT, MODE.empty()
-                                 ? std::format("hl.dispatch(hl.dsp.window.fullscreen({{ action = \"unset\", window = hl.get_window(\"{}\") }}))", TARGET)
-                                 : std::format("hl.dispatch(hl.dsp.window.fullscreen({{ action = \"set\", mode = \"{}\", window = hl.get_window(\"{}\") }}))", MODE, TARGET));
+            // Toggle between maximised and normal.
+            //
+            // The `mode` field must be supplied for BOTH directions. It defaults to
+            // "fullscreen", and the dispatcher implements `action = "unset"` as
+            // "if currently <mode>, call fullscreenWindow(<mode>)" -- so omitting it
+            // made the restore half toggle FULLSCREEN instead of un-maximising,
+            // turning this into a one-way switch.
+            const auto FS   = Fullscreen::controller()->getFullscreenModes(PWINDOW);
+            const bool ISON = FS.internal == Fullscreen::FSMODE_MAXIMIZED || FS.internal == Fullscreen::FSMODE_FULLSCREEN;
+
+            dispatchLua(WHAT, std::format("hl.dispatch(hl.dsp.window.fullscreen({{ action = \"{}\", mode = \"maximized\", window = hl.get_window(\"{}\") }}))",
+                                          ISON ? "unset" : "set", TARGET));
             return;
         }
 
         case SElement::eAction::Fullscreen:
-            dispatchLua(WHAT, std::format("hl.dispatch(hl.dsp.window.fullscreen({{ action = \"set\", mode = \"{}\", window = hl.get_window(\"{}\") }}))",
-                                          Fullscreen::controller()->getFullscreenModes(PWINDOW).internal == Fullscreen::FSMODE_FULLSCREEN ? "fullscreen" : "maximized",
-                                          TARGET));
+        {
+            // Same trap as Maximize: `mode` defaults to "fullscreen", and `unset` only
+            // acts on the mode it is given. Passing the mode explicitly keeps both halves
+            // talking about real fullscreen rather than accidentally maximising.
+            const bool ISON = Fullscreen::controller()->getFullscreenModes(PWINDOW).internal == Fullscreen::FSMODE_FULLSCREEN;
+            dispatchLua(WHAT, std::format("hl.dispatch(hl.dsp.window.fullscreen({{ action = \"{}\", mode = \"fullscreen\", window = hl.get_window(\"{}\") }}))",
+                                          ISON ? "unset" : "set", TARGET));
             return;
+        }
 
         case SElement::eAction::Pin:
         {
@@ -636,20 +634,32 @@ void CHyprWindowDecorator::runElementAction(const size_t index)
 
         case SElement::eAction::RetroFilter:
         {
-            // TEST WIRING: run `hyprshade toggle` and see whether the shader actually
-            // switches. hyprshade applies a shader with
-            //     hyprctl eval "hl.config({ decoration = { screen_shader = '...' } })"
-            // and that is expected NOT to reload the shader on a Lua config (0.56.2
-            // only sets m_reloadScreenShader from the legacy manager). This click is how
-            // we find out for certain instead of trusting that reading.
+            // Runs `hyprshade toggle <shader>`.
             //
-            // Deferred like every other action: spawning a process from inside a pointer
-            // handler is not worth risking. A double fork detaches it so a hanging
-            // hyprshade can never wedge the compositor.
+            // The shader MUST be named. With no argument, hyprshade infers one from its
+            // schedule config, which we do not use -- shader and fallback both resolve to
+            // None, and it calls Shader.off() unconditionally. That is why clicking the
+            // eye appeared to do nothing: it was only ever switching the shader OFF.
+            //
+            // Naming it makes hyprshade compare against `hyprctl getoption
+            // decoration.screen_shader` and flip it either way.
+            //
+            // On 0.57 a config change to decoration:screen_shader carries
+            // REFRESH_SCREEN_SHADER, so hl.config() reloads the shader and damages the
+            // monitor -- no restart needed.
             g_pEventLoopManager->doLater([]() {
-                Log::logger->log(Log::INFO, "[HYPRDECOR] action \"retro_filter\": running hyprshade toggle");
+                const std::string SHADER = gPlugin ? gPlugin->retro_shader : "";
+                if (SHADER.empty())
+                {
+                    Log::logger->log(Log::ERR, "[HYPRDECOR] action \"retro_filter\": no retro shader configured");
+                    return;
+                }
 
-                if (std::system("hyprshade toggle >/dev/null 2>&1 &") != 0)
+                Log::logger->log(Log::INFO, std::format("[HYPRDECOR] action \"retro_filter\": hyprshade toggle {}", SHADER));
+
+                // Detached: a hanging hyprshade must never wedge the compositor.
+                const auto CMD = std::format("hyprshade toggle '{}' >/dev/null 2>&1 &", SHADER);
+                if (std::system(CMD.c_str()) != 0)
                     Log::logger->log(Log::ERR, "[HYPRDECOR] action \"retro_filter\": could not start hyprshade");
             });
             return;
@@ -1114,7 +1124,7 @@ const SElementTexture &CHyprWindowDecorator::elementTexture(const size_t index, 
     return ELEMENT.active;
 }
 
-void CHyprWindowDecorator::renderBarTitle(Render::CRenderContext &ctx, const CBox &band, const float scale)
+void CHyprWindowDecorator::renderBarTitle([[maybe_unused]] Render::CRenderContext &ctx, const CBox &band, const float scale)
 {
     const bool VERTICAL = gPlugin->decoration_title_placement == "left" || gPlugin->decoration_title_placement == "right";
 
@@ -1349,7 +1359,7 @@ void CHyprWindowDecorator::renderBarButtonsText(Render::CRenderContext &ctx, CBo
     }
 }
 
-void CHyprWindowDecorator::draw(Render::CRenderContext &ctx, PHLMONITOR pMonitor, const float &a, const Render::SWindowRenderPresentation &presentation)
+void CHyprWindowDecorator::draw(Render::CRenderContext &ctx, PHLMONITOR pMonitor, const float &a, [[maybe_unused]] const Render::SWindowRenderPresentation &presentation)
 {
     gPlugin->loadAllTextures();
 
@@ -1496,7 +1506,13 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
         glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 
         windowBox.scale(pMonitor->m_scale).round();
-        Render::GL::g_pHyprOpenGL->renderRect(ctx, windowBox, CHyprColor(0, 0, 0, 0), {.round = (int)scaledRounding, .roundingPower = m_pWindow->presentation().roundingPower()});
+        // Named rather than a brace-init list: 0.57 added members to SRectRenderData, and
+        // a partial designated initialiser warns on every new field. Assigning only what
+        // we need keeps the defaults for the rest and stays warning-free.
+        Render::GL::CHyprOpenGLImpl::SRectRenderData CLEARDATA;
+        CLEARDATA.round         = (int)scaledRounding;
+        CLEARDATA.roundingPower = m_pWindow->presentation().roundingPower();
+        Render::GL::g_pHyprOpenGL->renderRect(ctx, windowBox, CHyprColor(0, 0, 0, 0), CLEARDATA);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
         glStencilFunc(GL_NOTEQUAL, 1, -1);
@@ -1590,10 +1606,19 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
     }
     else
     {
+        // Named structs rather than brace-init lists: 0.57 added members to
+        // SRectRenderData, and a partial designated initialiser warns on every new one.
+        Render::GL::CHyprOpenGLImpl::SRectRenderData BARDATA;
+        BARDATA.round         = (int)scaledRounding;
+        BARDATA.roundingPower = m_pWindow->presentation().roundingPower();
+
         if (SHOULDBLUR)
-            Render::GL::g_pHyprOpenGL->renderRect(ctx, titleBarBox, color, {.round = (int)scaledRounding, .roundingPower = m_pWindow->presentation().roundingPower(), .blur = true, .blurA = a});
-        else
-            Render::GL::g_pHyprOpenGL->renderRect(ctx, titleBarBox, color, {.round = (int)scaledRounding, .roundingPower = m_pWindow->presentation().roundingPower()});
+        {
+            BARDATA.blur  = true;
+            BARDATA.blurA = a;
+        }
+
+        Render::GL::g_pHyprOpenGL->renderRect(ctx, titleBarBox, color, BARDATA);
     }
 
     if (m_bWindowSizeChanged)
@@ -1689,7 +1714,9 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
         const double THICK = std::max(1.0, (double)std::round(gPlugin->bar_outline_width * pMonitor->m_scale));
         const CBox &B = titleBarBox;
 
-        const Render::GL::CHyprOpenGLImpl::SRectRenderData RECTDATA{.round = 0, .roundingPower = m_pWindow->presentation().roundingPower()};
+        Render::GL::CHyprOpenGLImpl::SRectRenderData RECTDATA;
+        RECTDATA.round         = 0;
+        RECTDATA.roundingPower = m_pWindow->presentation().roundingPower();
 
         // top, bottom, left, right
         Render::GL::g_pHyprOpenGL->renderRect(ctx, CBox{B.x, B.y, B.w, THICK}, outlineColor, RECTDATA);
