@@ -878,7 +878,7 @@ std::vector<Layout::SItemSpec> CHyprWindowDecorator::itemSpecs()
         s.offsetY         = ELEMENT.cfg.offsetY;
         s.w               = ELEMENT.cfg.width;
         s.h               = ELEMENT.cfg.height;
-        s.scale           = (double)ELEMENT.cfg.scale.value_or(1);
+        s.scale           = (double)ELEMENT.cfg.scale.value_or(gPlugin->cfg.defaultScale > 0 ? gPlugin->cfg.defaultScale : 1);
         s.srcW            = ELEMENT.naturalSize.x;
         s.srcH            = ELEMENT.naturalSize.y;
         s.ninepatch       = ELEMENT.cfg.ninepatch;

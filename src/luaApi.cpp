@@ -213,6 +213,17 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
     if (!lua_istable(L, DEFAULTS))
         return raise(L, "hyprdecor.setup: 'defaults' must be a table");
 
+    // ---- scale (applies to everything) ------------------------------------
+    // Read FIRST, so `border` and every element below can inherit it. A per-element
+    // `scale` still wins; this is only the fallback.
+    if (hasField(L, DEFAULTS, "scale"))
+    {
+        const double SC = numberField(L, DEFAULTS, "scale", 1);
+        if (SC < 1 || SC != (int)SC)
+            return raise(L, "hyprdecor.setup: 'defaults.scale' must be a positive integer");
+        NEXT.defaultScale = (int)SC;
+    }
+
     // ---- border -----------------------------------------------------------
     if (tableField(L, DEFAULTS, "border", "defaults.border"))
     {
@@ -256,6 +267,9 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
                 return raise(L, "hyprdecor.setup: 'defaults.border.scale' must be a positive integer");
             NEXT.artScale = (int)ART_SCALE;
         }
+        else if (NEXT.defaultScale > 0)
+            // No border-specific scale: inherit the global one.
+            NEXT.artScale = NEXT.defaultScale;
 
         if (hasField(L, BORDER, "linear_filtering"))
             NEXT.linearFiltering = boolField(L, BORDER, "linear_filtering", true);
