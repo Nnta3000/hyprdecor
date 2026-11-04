@@ -28,7 +28,7 @@ public:
 
   virtual void onPositioningReply(const SDecorationPositioningReply &reply);
 
-  virtual void draw(PHLMONITOR, float const &a);
+  virtual void draw(Render::CRenderContext &ctx, PHLMONITOR, float const &a, const Render::SWindowRenderPresentation &presentation);
 
   virtual eDecorationType getDecorationType();
 
@@ -77,6 +77,9 @@ private:
   bool m_bNeedsReposition = false;
   bool m_hidden = false;
   bool m_bTitleColorChanged = false;
+  // Set when the title must be re-rasterised for a reason other than text, box or colour:
+  // a focus change swaps `title.font_unfocused` in, and the cache key would miss it.
+  bool m_bForceTitleRerender = false;
   bool m_bLastEnabledState = false;
   bool m_bWindowHasFocus = false;
   bool m_bNinePatchChanged = false;
@@ -90,8 +93,8 @@ private:
   Vector2D cursorRelativeToBar();
   bool isMouseOnBar();
 
-  void renderPass(PHLMONITOR, float const &a);
-  void renderBarTitle(const CBox &band, const float scale);
+  void renderPass(Render::CRenderContext &ctx, PHLMONITOR, float const &a);
+  void renderBarTitle(Render::CRenderContext &ctx, const CBox &band, const float scale);
 
   // Where the title (and its background) goes, in the same space as topBarBox.
   // The title fills the gap between left- and right-anchored elements unless a
@@ -125,7 +128,7 @@ private:
   int m_iPressedElement = -1;
   void renderText(SP<Render::ITexture> out, const std::string &text, const CHyprColor &color, const Vector2D &bufferSize, const float scale, const int fontSize);
   bool renderBarButtons(const Vector2D &bufferSize, const float scale);
-  void renderBarButtonsText(CBox *barBox, const float scale, const float a);
+  void renderBarButtonsText(Render::CRenderContext &ctx, CBox *barBox, const float scale, const float a);
   void damageOnButtonHover();
 
   bool inputIsValid();

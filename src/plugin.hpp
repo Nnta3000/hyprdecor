@@ -6,6 +6,7 @@
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/gl/GLTexture.hpp>
 #include <hyprland/src/event/EventBus.hpp>
+#include <hyprland/src/ipc/s1/S1.hpp>
 #include <cairo/cairo.h>
 #include "ninepatch.hpp"
 #include "config.hpp"
@@ -100,6 +101,9 @@ public:
     bool decoration_title_enabled = true;
     bool bar_blur = false;
     std::string bar_text_font = "Sans";
+    // Empty means "same as bar_text_font": plugin.cpp resolves the fallback when the
+    // configuration is applied, so renderBarTitle always has a usable name.
+    std::string bar_text_font_unfocused;
     std::string decoration_title_placement = "top";
     bool bar_part_of_window = true;
     bool bar_precedence_over_border = false;
@@ -185,6 +189,10 @@ public:
     uint32_t m_barColorRuleIdx = 0;
     uint32_t m_titleColorRuleIdx = 0;
     std::vector<CHyprSignalListener> m_vListeners;
+
+    // The registered `hyprctl hyprdecor` command. 0.57 returns a SHARED pointer to the
+    // registered command, so it must be held: dropping it unregisters.
+    SP<IPC::Socket1::SCommand> m_pStatusCommand;
 };
 
 inline std::unique_ptr<CPlugin> gPlugin;

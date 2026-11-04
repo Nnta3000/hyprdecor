@@ -3,6 +3,9 @@
 
 class CHyprWindowDecorator;
 
+// Hyprland 0.57 threads a Render::CRenderContext through every draw call. The pass
+// element receives it in draw(), so the context must be carried into the decorator's
+// drawing code rather than reached for globally -- hence the parameter on every virtual.
 class CRenderPassElement : public IPassElement
 {
 public:
@@ -16,10 +19,10 @@ public:
   CRenderPassElement(const SBarData &data_);
   virtual ~CRenderPassElement() = default;
 
-  virtual std::vector<UP<IPassElement>> draw();
-  virtual bool needsLiveBlur();
-  virtual bool needsPrecomputeBlur();
-  virtual std::optional<CBox> boundingBox();
+  virtual std::vector<UP<IPassElement>> draw(Render::CRenderContext &ctx);
+  virtual bool needsLiveBlur(Render::CRenderContext &ctx);
+  virtual bool needsPrecomputeBlur(Render::CRenderContext &ctx);
+  virtual std::optional<CBox> boundingBox(Render::CRenderContext &ctx);
 
   virtual ePassElementType type()
   {
