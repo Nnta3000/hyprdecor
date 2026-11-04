@@ -388,6 +388,55 @@ static void testGap()
     CHECK(R.items[2].rect.x == 20 + 2 * (10 + 4), "third continues: %.0f", R.items[2].rect.x);
 }
 
+// `defaults.scale` must reach every value that decides a position, not just the art.
+// The frame is scaled BEFORE layout (padding/gap/margins/offsets), so this records the
+// invariant that makes a scaled frame keep its proportions: doubling the scale doubles
+// every distance between items and leaves their relative order intact.
+static void testGlobalScaleProportions()
+{
+    header("scale: one factor scales spacing, margins and offsets together");
+
+    auto base = orangeFrame();
+    base.gap     = 4;
+    base.padding = 7;
+
+    // EVERY distance doubles, including the reserved extents: those are derived from the
+    // nine-patch markers times the scale at resolve time, so in a real doubled frame they
+    // are doubled too.
+    auto scaled = orangeFrame();
+    scaled.left    = base.left * 2;
+    scaled.right   = base.right * 2;
+    scaled.top     = base.top * 2;
+    scaled.bottom  = base.bottom * 2;
+    scaled.contentLeft = base.contentLeft * 2;
+    scaled.gap         = base.gap * 2;
+    scaled.padding     = base.padding * 2;
+
+    auto item = [](int id, double marginL)
+    {
+        auto s = imageItem(id, 10, 10, Layout::eAlign::Start, 0);
+        s.marginLeft = marginL;
+        return s;
+    };
+
+    std::vector<Layout::SItemSpec> a = {item(0, 0), item(1, 3)};
+    std::vector<Layout::SItemSpec> b = {item(0, 0), item(1, 6)};
+
+    // The ART does not double here: `defaults.scale` is applied to the art by the spec
+    // builder, so this fixture holds it at 10 to isolate the SPACING.
+    auto RB = Layout::compute(scaled, b);
+
+    // What must hold: the first item starts after the (doubled) reserve and padding, and
+    // the second sits one art width plus the (doubled) gap and margin along -- NOT the old
+    // fixed distances with a bigger icon.
+    // The Top region starts at contentLeft + padding (see Layout::itemArea), both scaled.
+    CHECK(std::abs(RB.items[0].rect.x - (scaled.contentLeft + scaled.padding)) < 0.0001,
+          "first item follows scaled contentLeft+padding: %.1f", RB.items[0].rect.x);
+    const double EXPECT = RB.items[0].rect.x + 10 + scaled.gap + 6;
+    CHECK(std::abs(RB.items[1].rect.x - EXPECT) < 0.0001, "art + scaled gap + scaled margin: expected %.1f got %.1f", EXPECT,
+          RB.items[1].rect.x);
+}
+
 // Two fillers split the remaining space by weight, never "first wins".
 static void testFillWeights()
 {
@@ -701,6 +750,7 @@ int main()
     testMarginsAndOffsets();
     testEndIndependent();
     testGap();
+    testGlobalScaleProportions();
     testFillWeights();
     testCrossAlign();
     testColumns();

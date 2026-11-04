@@ -516,7 +516,11 @@ void CPlugin::update()
 
     // inset is additional space on top of the art. It is NOT drawn as a gap: the
     // reserved box and the box the nine-patch stretches over are the same rectangle.
-    const auto INSET = [&](double v) { return v >= 0 ? (int)std::lround(v) : 0; };
+    //
+    // Scaled here, not in frameMetrics: the reserved extents are built from inset_left..
+    // (see currentExtents()), so both must use the SAME number or the frame overlaps the
+    // window by exactly the amount one side forgot to scale.
+    const auto INSET = [&](double v) { return v >= 0 ? (int)std::lround(v * SC) : 0; };
     inset_left   = INSET(C.inset.left);
     inset_top    = INSET(C.inset.top);
     inset_right  = INSET(C.inset.right);
