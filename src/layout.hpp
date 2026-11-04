@@ -92,6 +92,12 @@ struct SFrameMetrics
 
     // Extra space requested per side by a region's own `inset`.
     double insetLeft = 0, insetTop = 0, insetRight = 0, insetBottom = 0;
+
+    // `defaults.scale`, already applied to every distance above. Layout uses it for the
+    // values that are NOT distances: a text item's font size, and any other per-item
+    // length that has to grow with the frame. Kept here so layout stays a pure function of
+    // its inputs.
+    double scale = 1;
 };
 
 // One configured element, reduced to what layout needs. Nothing here measures a font:

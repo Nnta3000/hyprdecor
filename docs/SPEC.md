@@ -186,6 +186,22 @@ does not set its own `scale`. Resolution order, highest first:
 So `defaults.scale = 2` with one element at `scale = 4` draws that element at 4 and
 everything else at 2. The monitor scale is applied on top, exactly once, as for every other
 length.
+
+**What `defaults.scale` multiplies.** Every value that decides a size or a position inside
+the frame, so a scaled frame keeps its proportions instead of leaving small art in big gaps:
+
+| Scales | Does not scale |
+|---|---|
+| frame art and reserved extents | `visible_when`, `collapse`, `align`, `cross_align` |
+| `padding`, region `gap` | `fill` weights |
+| item `offset_x`/`offset_y` and `margin` | monitor scale (applied separately) |
+| item `width`/`height` when set | |
+| title `margin`, `height`, `text_offset_*` | |
+| title font `size` | |
+| `border.inset` | |
+
+Reserved extents are resolved from the nine-patch markers times the scale, and `inset` is
+folded in at the same time — one number for the whole box, never scaled twice.
 - `button`: an image with states plus an optional `action`. No action means
   hover/pressed art only.
 - Actions: `close`, `maximize`, `fullscreen`, `pin`, `float`, `minimize`.

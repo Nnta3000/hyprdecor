@@ -793,6 +793,9 @@ CBox CHyprWindowDecorator::titleBoxPlaced(const CBox &band, const float scale) c
 
     // LOGICAL units, like fill mode. artScale converts source px to logical; the monitor
     // scale is NOT involved here, the caller applies it once when drawing.
+    //
+    // artScale ALREADY includes defaults.scale when border.scale is unset (see the parser),
+    // so it must not be multiplied by it again here.
     const double BS = (double)std::max(1, gPlugin->cfg.artScale);
 
     double w = -1, h = -1;
@@ -817,10 +820,11 @@ CBox CHyprWindowDecorator::titleBoxPlaced(const CBox &band, const float scale) c
     if (h <= 0)
         h = band.height;
 
-    // 2. Position from the anchor.
+    // 2. Position from the anchor. Offsets are art units, so they follow defaults.scale.
     (void)scale;
-    const auto R = TitleBox::layoutPlaced(band.x, band.y, band.width, band.height, w, h, (TitleBox::eAnchor)C.titleAnchor, C.titleOffsetX,
-                                          C.titleOffsetY);
+    const double OS = gPlugin->cfg.defaultScale > 0 ? (double)gPlugin->cfg.defaultScale : 1.0;
+    const auto R = TitleBox::layoutPlaced(band.x, band.y, band.width, band.height, w, h, (TitleBox::eAnchor)C.titleAnchor, C.titleOffsetX * OS,
+                                          C.titleOffsetY * OS);
 
     return {R.x, R.y, R.w, R.h};
 }
@@ -832,6 +836,15 @@ Layout::SFrameMetrics CHyprWindowDecorator::frameMetrics()
     const auto &NPI = m_bWindowHasFocus ? gPlugin->activeNinepatch : gPlugin->inactiveNinepatch;
     const auto  BOX = assignedBoxGlobal();
 
+    // `defaults.scale` is the single "make the whole frame bigger" knob: art, spacings,
+    // offsets and text all follow it, so a scaled frame does not end up with a small icon
+    // floating in a big band. Per-element `scale` still overrides the ART size only; the
+    // spacing below is global by nature (there is one gap, one padding).
+    //
+    // The reserved extents (decoration_offset_*) are already scaled at resolve time from
+    // the nine-patch, so they are NOT multiplied again here.
+    const double S = gPlugin->cfg.defaultScale > 0 ? (double)gPlugin->cfg.defaultScale : 1.0;
+
     Layout::SFrameMetrics m;
     m.left          = gPlugin->decoration_offset_left;
     m.top           = gPlugin->decoration_offset_top;
@@ -841,15 +854,18 @@ Layout::SFrameMetrics CHyprWindowDecorator::frameMetrics()
     m.contentTop    = NPI.padding[1];
     m.contentRight  = NPI.padding[2];
     m.contentBottom = NPI.padding[3];
-    m.padding       = gPlugin->decoration_padding;
-    m.gap           = gPlugin->cfg.regionGap;
+    m.padding       = gPlugin->decoration_padding * S;
+    m.gap           = gPlugin->cfg.regionGap * S;
     m.stackEnd      = gPlugin->cfg.regionStackEnd;
     m.boxW          = BOX.w;
     m.boxH          = BOX.h;
+    // inset_* are already scaled at resolve time (they feed the reserved extents), so they
+    // are used as-is here.
     m.insetLeft     = gPlugin->inset_left;
     m.insetTop      = gPlugin->inset_top;
     m.insetRight    = gPlugin->inset_right;
     m.insetBottom   = gPlugin->inset_bottom;
+    m.scale         = S;
     return m;
 }
 
@@ -873,11 +889,17 @@ std::vector<Layout::SItemSpec> CHyprWindowDecorator::itemSpecs()
             case SElement::eType::Button: s.kind = Layout::eItemKind::Button; break;
             default: s.kind = ELEMENT.cfg.interactive ? Layout::eItemKind::Button : Layout::eItemKind::Image; break;
         }
+        // Every distance an element declares is in ART units, so it scales with
+        // defaults.scale -- otherwise a scaled icon sits at an unscaled offset and the row
+        // drifts apart. `scale` below stays the ART multiplier (which a per-element value
+        // may override); spacing is always global.
+        const double S = gPlugin->cfg.defaultScale > 0 ? (double)gPlugin->cfg.defaultScale : 1.0;
+
         s.align           = ELEMENT.cfg.anchor == SElement::eAnchor::TopRight ? Layout::eAlign::End : Layout::eAlign::Start;
-        s.offsetX         = ELEMENT.cfg.offsetX;
-        s.offsetY         = ELEMENT.cfg.offsetY;
-        s.w               = ELEMENT.cfg.width;
-        s.h               = ELEMENT.cfg.height;
+        s.offsetX         = ELEMENT.cfg.offsetX * S;
+        s.offsetY         = ELEMENT.cfg.offsetY * S;
+        s.w               = ELEMENT.cfg.width > 0 ? ELEMENT.cfg.width * S : ELEMENT.cfg.width;
+        s.h               = ELEMENT.cfg.height > 0 ? ELEMENT.cfg.height * S : ELEMENT.cfg.height;
         s.scale           = (double)ELEMENT.cfg.scale.value_or(gPlugin->cfg.defaultScale > 0 ? gPlugin->cfg.defaultScale : 1);
         s.srcW            = ELEMENT.naturalSize.x;
         s.srcH            = ELEMENT.naturalSize.y;
@@ -890,10 +912,10 @@ std::vector<Layout::SItemSpec> CHyprWindowDecorator::itemSpecs()
         s.fill            = ELEMENT.cfg.fill;
         s.weight          = ELEMENT.cfg.weight;
         s.crossAlign      = ELEMENT.cfg.crossAlign == "start" ? Layout::eAlign::Start : ELEMENT.cfg.crossAlign == "end" ? Layout::eAlign::End : Layout::eAlign::Centre;
-        s.marginLeft      = ELEMENT.cfg.marginLeft;
-        s.marginTop       = ELEMENT.cfg.marginTop;
-        s.marginRight     = ELEMENT.cfg.marginRight;
-        s.marginBottom    = ELEMENT.cfg.marginBottom;
+        s.marginLeft      = ELEMENT.cfg.marginLeft * S;
+        s.marginTop       = ELEMENT.cfg.marginTop * S;
+        s.marginRight     = ELEMENT.cfg.marginRight * S;
+        s.marginBottom    = ELEMENT.cfg.marginBottom * S;
         specs.push_back(s);
     }
 
@@ -959,11 +981,14 @@ Layout::SResult CHyprWindowDecorator::resolveLayout()
         t.kind        = Layout::eItemKind::Title;
         t.fill        = true;
         t.weight      = 1;
-        t.h           = C.titleHeight; // -1 or 0 = the full band height
-        t.marginLeft  = C.titleMarginLeft;
-        t.marginRight = C.titleMarginRight;
-        t.marginTop   = C.titleMarginTop;
-        t.marginBottom = C.titleMarginBottom;
+        // Title spacing and any fixed height are art units too, so they follow
+        // defaults.scale like every other distance in the frame.
+        const double TS = gPlugin->cfg.defaultScale > 0 ? (double)gPlugin->cfg.defaultScale : 1.0;
+        t.h           = C.titleHeight > 0 ? C.titleHeight * TS : C.titleHeight; // <= 0 = the full band height
+        t.marginLeft  = C.titleMarginLeft * TS;
+        t.marginRight = C.titleMarginRight * TS;
+        t.marginTop   = C.titleMarginTop * TS;
+        t.marginBottom = C.titleMarginBottom * TS;
         t.crossAlign  = C.titleCrossAlign == "start" ? Layout::eAlign::Start : C.titleCrossAlign == "end" ? Layout::eAlign::End : Layout::eAlign::Centre;
 
         // Appended last so the end-aligned buttons keep their positions: the title takes
@@ -1133,7 +1158,11 @@ void CHyprWindowDecorator::renderBarTitle([[maybe_unused]] Render::CRenderContex
         return;
     }
 
-    const auto scaledSize = gPlugin->decoration_title_size * scale;
+    // Font size follows BOTH: `defaults.scale` (art units, so the text grows with the
+    // frame) and the monitor scale (logical -> device). Previously only the monitor scale
+    // was applied, so a frame scaled to 4 kept 13px-tall text.
+    const double ART   = gPlugin->cfg.defaultScale > 0 ? (double)gPlugin->cfg.defaultScale : 1.0;
+    const auto   scaledSize = gPlugin->decoration_title_size * ART * scale;
 
     const CHyprColor COLOR = m_bForcedTitleColor.value_or(gPlugin->col_text);
 
@@ -1208,8 +1237,11 @@ void CHyprWindowDecorator::renderBarTitle([[maybe_unused]] Render::CRenderContex
         align = 0.5f;
 
     // Alignment, then the padding, then the text's own nudge.
-    const int xOffset = (int)std::round(INSET + (maxWidth - (float)layoutWidth / PANGO_SCALE) * align + gPlugin->cfg.textOffsetX * M);
-    const int yOffset = (int)std::round((logicalHeight / 2.0 - layoutHeight / PANGO_SCALE / 2.0) + gPlugin->cfg.textOffsetY * M);
+    // text_offset_* are art units: multiply by defaults.scale AND the monitor scale, like
+    // everything else the user positions.
+    const double TOFF = (gPlugin->cfg.defaultScale > 0 ? (double)gPlugin->cfg.defaultScale : 1.0) * M;
+    const int xOffset = (int)std::round(INSET + (maxWidth - (float)layoutWidth / PANGO_SCALE) * align + gPlugin->cfg.textOffsetX * TOFF);
+    const int yOffset = (int)std::round((logicalHeight / 2.0 - layoutHeight / PANGO_SCALE / 2.0) + gPlugin->cfg.textOffsetY * TOFF);
 
     cairo_move_to(CAIRO, xOffset, yOffset);
     pango_cairo_show_layout(CAIRO, layout);
