@@ -251,6 +251,11 @@ struct SConfig
     bool        renderAbove          = true;
     std::string onDoubleClick;
 
+    // Shader name passed to `hyprshade toggle` by the retro_filter action. hyprshade
+    // resolves bare names against ~/.config/hypr/shaders (and a few other dirs), so this
+    // is a NAME like "palette_dither", not a path.
+    std::string retroShader;
+
     // App icon
     bool     appIconEnabled = false;
     double   appIconOffsetX = 0;
