@@ -26,11 +26,11 @@ DEST="${HYPRSHADE_SHADERS_DIR:-$HOME/.config/hypr/shaders}"
 KEY_BITS="${KEY_BITS:-3}"
 
 # PIXEL_SIZE is the number of SCREEN pixels covered by one dither sample.
-#   1 = full resolution (no downsampling, palette quantisation only)
+#   1 = full resolution (one sample per screen pixel)
 #   2 = one sample per 2x2 block ("half resolution")
 # Override with FULL_PS / HALF_PS.
-FULL_PS="${FULL_PS:-2}"
-HALF_PS="${HALF_PS:-4}"
+FULL_PS="${FULL_PS:-1}"
+HALF_PS="${HALF_PS:-2}"
 
 if [ ! -x "$GEN" ]; then
     echo "install-shaders: palette-gen not built at $GEN" >&2
