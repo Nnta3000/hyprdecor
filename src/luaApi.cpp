@@ -489,6 +489,14 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
             NEXT.regionStackEnd = boolField(L, BAR, "stack_end", false);
         if (hasField(L, BAR, "button_padding"))
             NEXT.buttonPadding = (int)numberField(L, BAR, "button_padding", 5);
+
+        if (hasField(L, BAR, "resize_grab_width"))
+        {
+            const double RW = numberField(L, BAR, "resize_grab_width", 8);
+            if (RW < 0)
+                return raise(L, "hyprdecor.setup: 'defaults.bar.resize_grab_width' must be >= 0");
+            NEXT.resizeGrabWidth = RW;
+        }
         if (hasField(L, BAR, "buttons_alignment"))
         {
             const auto ALIGN = stringField(L, BAR, "buttons_alignment");

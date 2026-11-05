@@ -261,6 +261,15 @@ struct SConfig
     bool        blur                 = false;
     int         padding              = 7;
     int         buttonPadding        = 5;
+
+    // Width of the band along the OUTER edge of the frame that starts a resize, in ART
+    // px (so it follows defaults.scale). Measured from the decoration box inward.
+    //
+    // This exists because Hyprland's own border-resize only triggers OUTSIDE the window,
+    // and it skips any point inside a decoration declaring DECORATION_ALLOWS_MOUSE_INPUT
+    // -- which the frame is. So without this band the frame was grabbable for a drag but
+    // never showed or acted as a resize edge. 0 disables the band entirely.
+    double      resizeGrabWidth      = 8;
     std::string buttonsAlignment     = "right";
     bool        partOfWindow         = true;
     bool        precedenceOverBorder = false;

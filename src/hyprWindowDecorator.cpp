@@ -215,6 +215,31 @@ void CHyprWindowDecorator::onMouseButton(Event::SCallbackInfo &info, IPointer::S
     if (!inputIsValid())
         return;
 
+    // Resize edge: claim the press BEFORE the bar logic, which would otherwise treat it as
+    // a drag or a button. Only presses start a resize; releases fall through so the normal
+    // drag-end path still runs.
+    //
+    // MBIND_RESIZE is what Hyprland's own border path uses (see
+    // processMouseDownNormal: beginDragTarget(target, MBIND_RESIZE)), so the resize
+    // behaves identically once started.
+    if (e.state == WL_POINTER_BUTTON_STATE_PRESSED && !Fullscreen::controller()->isFullscreen(m_pWindow.lock()))
+    {
+        const auto PWINDOW = m_pWindow.lock();
+
+        // An item (button) wins over the resize band: pressing close on the right edge
+        // must still close, not resize. isInResizeBand() already rejects points outside
+        // the decoration box, so no separate "is over the deco" test is needed.
+        const auto COORDS = cursorRelativeToBar();
+        if (isInResizeBand(COORDS) && elementIndexAt(COORDS) == -1 && indexToButton(COORDS) == -1)
+        {
+            if (!g_layoutManager->dragController()->target())
+                g_layoutManager->beginDragTarget(PWINDOW->layoutTarget(), MBIND_RESIZE);
+
+            info.cancelled = true;
+            return;
+        }
+    }
+
     // Only process if mouse is actually on the bar decoration
     if (!isMouseOnBar() && !m_bDragPending && !m_bDraggingThis)
         return;
@@ -2003,6 +2028,44 @@ bool CHyprWindowDecorator::isPointOnBar(Vector2D COORDS)
         return false;
 
     return true;
+}
+
+// Is COORDS inside the resize band along the frame's OUTER edge?
+//
+// Hyprland's own border resize runs in processMouseDownNormal() AFTER
+// checkInputOnDecorations(), and only outside the window's geometric box. The frame
+// occupies that box's border, so it swallowed the press and no resize ever started
+// there. This band puts the resize back on the frame itself.
+//
+// The band is measured inward from the decoration box edge, and is CLIPPED to the
+// reserved extent on each side: where the frame is thin (right, 10px in the orange
+// theme) the band shrinks with it, so it can never reach into the client area or over a
+// frame button.
+bool CHyprWindowDecorator::isInResizeBand(Vector2D COORDS)
+{
+    const double W = gPlugin->cfg.resizeGrabWidth * (gPlugin->cfg.defaultScale > 0 ? (double)gPlugin->cfg.defaultScale : 1.0);
+    if (W <= 0)
+        return false;
+
+    const auto BOX = assignedBoxGlobal();
+    if (!VECINRECT(COORDS, 0, 0, BOX.w, BOX.h))
+        return false;
+
+    const auto EXT = currentExtents();
+    const double L = EXT.topLeft.x, T = EXT.topLeft.y;
+    const double R = EXT.bottomRight.x, B = EXT.bottomRight.y;
+
+    const double BANDL = std::min(W, L);
+    const double BANDR = std::min(W, R);
+    const double BANDT = std::min(W, T);
+    const double BANDB = std::min(W, B);
+
+    // A zero-width side cannot host a band (nothing of the frame is there).
+    if ((BANDL > 0 && COORDS.x < BANDL) || (BANDR > 0 && COORDS.x >= BOX.w - BANDR) || (BANDT > 0 && COORDS.y < BANDT)
+        || (BANDB > 0 && COORDS.y >= BOX.h - BANDB))
+        return true;
+
+    return false;
 }
 
 eDecorationLayer CHyprWindowDecorator::getDecorationLayer()

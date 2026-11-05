@@ -204,6 +204,14 @@ Reserved extents are resolved from the nine-patch markers times the scale, and `
 folded in at the same time — one number for the whole box, never scaled twice.
 - `button`: an image with states plus an optional `action`. No action means
   hover/pressed art only.
+- Resize band. `bar.resize_grab_width` (art px, scaled) is a band along the frame's
+  OUTER edge that starts a resize when pressed, clipped per side to that side's reserved
+  extent so it never reaches the client area or a button. It exists because Hyprland's
+  own border resize only runs OUTSIDE the window and is skipped inside any decoration
+  declaring `DECORATION_ALLOWS_MOUSE_INPUT`, which the frame is — so without it the frame
+  could be dragged but never resized. Items win: a press on a button or title still acts
+  on the item. 0 disables the band.
+
 - Actions: `close`, `maximize`, `fullscreen`, `pin`, `float`, `minimize`.
   `minimize` parks the window on `special:min-<its workspace>` (project convention, not
   a native Hyprland state); the bar lists those windows per workspace.
