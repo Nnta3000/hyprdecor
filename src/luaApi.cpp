@@ -405,6 +405,19 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
         if (hasField(L, TITLE, "inset"))
             NEXT.titleInset = numberField(L, TITLE, "inset", 0);
 
+        if (hasField(L, TITLE, "baseline"))
+        {
+            const auto B = stringField(L, TITLE, "baseline");
+            if (!B)
+                return raise(L, "hyprdecor.setup: 'defaults.title.baseline' must be a string");
+            if (*B != "font" && *B != "line")
+                return raise(L, "hyprdecor.setup: 'defaults.title.baseline' \"{}\" is not valid (font | line)", *B);
+            NEXT.titleBaseline = *B;
+        }
+
+        if (hasField(L, TITLE, "baseline_offset"))
+            NEXT.titleBaselineOffset = numberField(L, TITLE, "baseline_offset", 0);
+
         if (hasField(L, TITLE, "cross_align"))
         {
             const auto CA = stringField(L, TITLE, "cross_align");

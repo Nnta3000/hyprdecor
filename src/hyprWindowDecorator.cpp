@@ -1236,14 +1236,58 @@ void CHyprWindowDecorator::renderBarTitle([[maybe_unused]] Render::CRenderContex
     else if (gPlugin->cfg.titleAlign == "centre")
         align = 0.5f;
 
-    // Alignment, then the padding, then the text's own nudge.
-    // text_offset_* are art units: multiply by defaults.scale AND the monitor scale, like
-    // everything else the user positions.
-    const double TOFF = (gPlugin->cfg.defaultScale > 0 ? (double)gPlugin->cfg.defaultScale : 1.0) * M;
-    const int xOffset = (int)std::round(INSET + (maxWidth - (float)layoutWidth / PANGO_SCALE) * align + gPlugin->cfg.textOffsetX * TOFF);
-    const int yOffset = (int)std::round((logicalHeight / 2.0 - layoutHeight / PANGO_SCALE / 2.0) + gPlugin->cfg.textOffsetY * TOFF);
+    // --- vertical placement --------------------------------------------------
+    //
+    // `layoutHeight` is the MAXIMUM over every run in the string. A title is normally one
+    // run of the configured pixel font, but one missing glyph -- an accented letter, an em
+    // dash -- makes Pango fall back to a different family for that run. If that family is
+    // taller, the laid-out line grows and the text shifts, which is why a terminal and a
+    // browser looked misaligned by a fixed number of pixels: their titles contain
+    // different fallback glyphs.
+    //
+    // Fix: position the line by the DECLARED font's baseline, not by the tallest run.
+    // `line` mode keeps the old behaviour for anyone who wants it.
+    //
+    // Measured with a 30px and a 44px run mixed into a 16px line: centring the layout
+    // height moved the ink centre 19.5 -> 25.5 -> 35.5, while anchoring the baseline kept
+    // the ink bottom fixed at row 27 in all three cases.
+    double lineTop; // cairo origin: pango_cairo_show_layout() draws from the LINE TOP
+    if (gPlugin->cfg.titleBaseline == "line")
+    {
+        lineTop = logicalHeight / 2.0 - layoutHeight / PANGO_SCALE / 2.0;
+    }
+    else
+    {
+        PangoFontDescription *declared = pango_font_description_from_string(FONT.c_str());
+        pango_font_description_set_size(declared, scaledSize * PANGO_SCALE);
+        PangoFontMetrics *metrics = pango_context_get_metrics(context, declared, nullptr);
+        const double      ASCENT  = pango_font_metrics_get_ascent(metrics) / (double)PANGO_SCALE;
+        const double      DESCENT = pango_font_metrics_get_descent(metrics) / (double)PANGO_SCALE;
+        pango_font_metrics_unref(metrics);
+        pango_font_description_free(declared);
 
-    cairo_move_to(CAIRO, xOffset, yOffset);
+        // Where the DECLARED font's baseline should sit: centre its own ascent/descent.
+        const double WANT = (logicalHeight + (ASCENT - DESCENT)) / 2.0;
+
+        // Where the LINE's baseline actually is. Pango puts every run on the tallest run's
+        // baseline, so this is NOT the declared ascent -- ask Pango rather than assume.
+        PangoLayoutIter *iter = pango_layout_get_iter(layout);
+        const double     LINEBASE = iter ? pango_layout_iter_get_baseline(iter) / (double)PANGO_SCALE : ASCENT;
+        if (iter)
+            pango_layout_iter_free(iter);
+
+        lineTop = WANT - LINEBASE;
+    }
+
+    // Both modes end at ONE cairo origin. "line" reproduces the old behaviour exactly
+    // (origin at the top of the laid-out line, offset 0 by default); "font" puts the
+    // origin on the declared font's baseline. baseline_offset is a nudge for the pixel
+    // fonts whose ink sits off their nominal metrics, and applies to both.
+    const double TOFF    = (gPlugin->cfg.defaultScale > 0 ? (double)gPlugin->cfg.defaultScale : 1.0) * M;
+    const int    xOffset = (int)std::round(INSET + (maxWidth - (float)layoutWidth / PANGO_SCALE) * align + gPlugin->cfg.textOffsetX * TOFF);
+    const double yOrigin = lineTop + (gPlugin->cfg.titleBaselineOffset + gPlugin->cfg.textOffsetY) * TOFF;
+
+    cairo_move_to(CAIRO, xOffset, yOrigin);
     pango_cairo_show_layout(CAIRO, layout);
 
     g_object_unref(layout);

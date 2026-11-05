@@ -213,6 +213,20 @@ struct SConfig
     uint64_t    textColor      = 0xFFFFFFFF;
     // Padding INSIDE the title box, between its edge and the text.
     double      titleInset     = 0;
+    // Vertical placement of the text baseline inside the title box.
+    //
+    //   "font"  (default) centre on the FONT's own ascent+descent, not on the laid-out
+    //           line box. The line box is the maximum over every run, so one fallback
+    //           glyph from a different family (an accented letter the pixel font lacks)
+    //           makes the whole line taller and shifts every title unevenly.
+    //   "line"  the old behaviour: centre on the laid-out height.
+    //
+    // "font" is what keeps a title steady whether or not its text falls back.
+    std::string titleBaseline = "font"; // font | line
+    // Extra pixels added to the baseline in "font" mode. Positive moves the text DOWN.
+    // Art units, so it scales with defaults.scale. Use it to compensate for a pixel
+    // font whose real ink sits off its nominal metrics.
+    double      titleBaselineOffset = 0;
     // Distance between adjacent items on a region's main axis.
     double      regionGap = 0;
     // End items stack from the end edge instead of anchoring to it independently, so the
