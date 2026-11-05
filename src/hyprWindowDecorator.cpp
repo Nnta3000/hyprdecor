@@ -54,6 +54,27 @@ static std::string luaQuote(const std::string &TEXT);
 static void        dispatchLua(const std::string &what, const std::string &code);
 static void        dispatchLuaSync(const std::string &what, const std::string &code);
 
+// eRectCorner is a bit mask: CORNER_LEFT alone is "left edge only", not "left corner".
+// Mapping our edge name onto it is what gives single-axis resizing.
+static Layout::eRectCorner cornerForEdge(const char *EDGE)
+{
+    if (!EDGE)
+        return Layout::CORNER_NONE;
+
+    const std::string_view E = EDGE;
+
+    // Every name in resizeEdgeAt() is unique, so an exact match is enough.
+    if (E == "top_left_corner") return Layout::CORNER_TOPLEFT;
+    if (E == "top_right_corner") return Layout::CORNER_TOPRIGHT;
+    if (E == "bottom_left_corner") return Layout::CORNER_BOTTOMLEFT;
+    if (E == "bottom_right_corner") return Layout::CORNER_BOTTOMRIGHT;
+    if (E == "left_side") return Layout::CORNER_LEFT;
+    if (E == "right_side") return Layout::CORNER_RIGHT;
+    if (E == "top_side") return Layout::CORNER_TOP;
+    if (E == "bottom_side") return Layout::CORNER_BOTTOM;
+    return Layout::CORNER_NONE;
+}
+
 CHyprWindowDecorator::CHyprWindowDecorator(PHLWINDOW pWindow) : IHyprWindowDecoration(pWindow)
 {
     m_pWindow = pWindow;
@@ -234,8 +255,11 @@ void CHyprWindowDecorator::onMouseButton(Event::SCallbackInfo &info, IPointer::S
         const char *EDGE   = resizeEdgeAt(COORDS);
         if (EDGE && elementIndexAt(COORDS) == -1 && indexToButton(COORDS) == -1)
         {
+            // Pass the edge we already know. Without it Hyprland picks a CORNER from the
+            // cursor quadrant alone (DragController::dragBegin), never a single edge, so a
+            // press on the middle of the left border resized both axes.
             if (!g_layoutManager->dragController()->target())
-                g_layoutManager->beginDragTarget(PWINDOW->layoutTarget(), MBIND_RESIZE);
+                g_layoutManager->beginDragTarget(PWINDOW->layoutTarget(), MBIND_RESIZE, cornerForEdge(EDGE));
 
             info.cancelled = true;
             return;
