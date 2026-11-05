@@ -1992,22 +1992,50 @@ eDecorationType CHyprWindowDecorator::getDecorationType()
 
 void CHyprWindowDecorator::updateWindow([[maybe_unused]] PHLWINDOW pWindow)
 {
-    enforceMinSize();
+    requestMinSizeClamp();
     damageEntire();
 }
 
-// Keep the window at least as large as the frame's own nine-patch minimum.
+// Ask for a clamp, but never do it inside a layout callback.
 //
-// The frame cannot render below `border L+R` by `border T+B`; below that the corners
-// overlap and the decoration collapses -- which is what happened when the window was
-// resized small. Hyprland's own floor is MIN_WINDOW_SIZE (20), far below any real frame,
-// and clampWindowSize() is the same call the `min_size` window rule makes.
+// clampWindowSize() calls setPositionGlobal(), which runs another layout pass and calls
+// updateWindow() again. Clamping synchronously here recursed until the stack died -- the
+// crash happened on the first window, right after "positioning: window 5x5".
 //
-// The minimum is the nine-patch border (the non-stretchable corners) plus the reserved
-// inset, times the art scale. Client minimums the app declared are respected: the
-// larger of the two wins.
+// Deferring to the event loop breaks the cycle: a second request while one is already
+// queued is dropped, so a burst of size changes still yields one clamp.
+void CHyprWindowDecorator::requestMinSizeClamp()
+{
+    if (m_bMinSizeClampPending || !g_pEventLoopManager)
+        return;
+
+    m_bMinSizeClampPending = true;
+
+    g_pEventLoopManager->doLater([this]() {
+        // The decorator is owned by Hyprland and can be destroyed before this runs. Only
+        // touch it if it is still among the live ones.
+        if (!gPlugin)
+            return;
+
+        bool alive = false;
+        for (auto *d : gPlugin->liveDecorators())
+            if (d == this)
+            {
+                alive = true;
+                break;
+            }
+
+        if (!alive)
+            return;
+
+        m_bMinSizeClampPending = false;
+        enforceMinSize();
+    });
+}
+
 void CHyprWindowDecorator::enforceMinSize()
 {
+    // The decorator can be gone by the time the deferred callback runs.
     const auto PWINDOW = m_pWindow.lock();
     if (!PWINDOW || !validMapped(PWINDOW))
         return;
@@ -2032,12 +2060,11 @@ void CHyprWindowDecorator::enforceMinSize()
         minH = std::max(minH, CLIENTMIN->y);
     }
 
-    // Only clamp UP: shrinking is the failure we are preventing, and clamping down on
-    // every update would fight the user.
     const auto SIZE = PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_GOAL);
     if (SIZE.x >= minW && SIZE.y >= minH)
         return;
 
+    // No callback runs from here: we are already outside the layout pass.
     PWINDOW->clampWindowSize(Vector2D{minW, minH}, std::nullopt);
 }
 

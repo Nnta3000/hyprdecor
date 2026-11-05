@@ -139,8 +139,13 @@ private:
   bool isInResizeBand(Vector2D COORDS);
 
   // Clamp the window up to the frame's nine-patch minimum, so the decoration can never
-  // be squeezed into collapse. Called from updateWindow(), i.e. on every size change.
+  // be squeezed into collapse.
+  //
+  // requestMinSizeClamp() is what updateWindow() calls: it DEFERS the clamp to the event
+  // loop, because clampWindowSize() re-enters layout and would otherwise recurse forever.
+  void requestMinSizeClamp();
   void enforceMinSize();
+  bool m_bMinSizeClampPending = false;
   void onMouseButton(Event::SCallbackInfo &info, IPointer::SButtonEvent e);
   void onTouchDown(Event::SCallbackInfo &info, ITouch::SDownEvent e);
   void onTouchUp(Event::SCallbackInfo &info, ITouch::SUpEvent e);
