@@ -228,10 +228,11 @@ void CHyprWindowDecorator::onMouseButton(Event::SCallbackInfo &info, IPointer::S
         const auto PWINDOW = m_pWindow.lock();
 
         // An item (button) wins over the resize band: pressing close on the right edge
-        // must still close, not resize. isInResizeBand() already rejects points outside
-        // the decoration box, so no separate "is over the deco" test is needed.
-        const auto COORDS = cursorRelativeToBar();
-        if (isInResizeBand(COORDS) && elementIndexAt(COORDS) == -1 && indexToButton(COORDS) == -1)
+        // must still close, not resize. resizeEdgeAt() is the same call the cursor uses,
+        // so the grab zone and the arrow agree exactly.
+        const auto  COORDS = cursorRelativeToBar();
+        const char *EDGE   = resizeEdgeAt(COORDS);
+        if (EDGE && elementIndexAt(COORDS) == -1 && indexToButton(COORDS) == -1)
         {
             if (!g_layoutManager->dragController()->target())
                 g_layoutManager->beginDragTarget(PWINDOW->layoutTarget(), MBIND_RESIZE);
@@ -296,17 +297,37 @@ void CHyprWindowDecorator::onMouseMove([[maybe_unused]] Vector2D coords)
 
 // Map the resize band to an edge/corner shape, in the same vocabulary Hyprland uses in
 // setCursorIconOnBorder() so the same theme sprites are picked.
-const char *CHyprWindowDecorator::resizeCursorName(Vector2D COORDS)
+// Which resize edge (if any) COORDS is on. THE single source of truth: the resize ACTION
+// and the resize CURSOR both call this, so they cannot disagree by a pixel.
+//
+// Returns nullptr when the point is not in the band. A point outside the decoration box
+// is never in the band -- that check lives here rather than at the call sites, because a
+// caller that forgot it (the cursor did) reported edges a couple of pixels too wide.
+const char *CHyprWindowDecorator::resizeEdgeAt(Vector2D COORDS)
 {
-    const auto W      = gPlugin->cfg.resizeGrabWidth * (gPlugin->cfg.defaultScale > 0 ? (double)gPlugin->cfg.defaultScale : 1.0);
-    const auto BOX    = assignedBoxGlobal();
-    const auto EXT    = currentExtents();
+    const double SC = gPlugin->cfg.defaultScale > 0 ? (double)gPlugin->cfg.defaultScale : 1.0;
+    const double W  = gPlugin->cfg.resizeGrabWidth * SC;
+    if (W <= 0)
+        return nullptr;
+
+    const auto BOX = assignedBoxGlobal();
+    if (!VECINRECT(COORDS, 0, 0, BOX.w, BOX.h))
+        return nullptr;
+
+    const auto   EXT = currentExtents();
     const double L = EXT.topLeft.x, T = EXT.topLeft.y, R = EXT.bottomRight.x, B = EXT.bottomRight.y;
 
-    const bool ONL = W > 0 && L > 0 && COORDS.x < std::min(W, L);
-    const bool ONR = W > 0 && R > 0 && COORDS.x >= BOX.w - std::min(W, R);
-    const bool ONT = W > 0 && T > 0 && COORDS.y < std::min(W, T);
-    const bool ONB = W > 0 && B > 0 && COORDS.y >= BOX.h - std::min(W, B);
+    // Clip each side to the frame actually present there: a side with no reserved space
+    // has no band, and a thin side cannot offer more than it has.
+    const double BANDL = L > 0 ? std::min(W, L) : 0;
+    const double BANDR = R > 0 ? std::min(W, R) : 0;
+    const double BANDT = T > 0 ? std::min(W, T) : 0;
+    const double BANDB = B > 0 ? std::min(W, B) : 0;
+
+    const bool ONL = BANDL > 0 && COORDS.x < BANDL;
+    const bool ONR = BANDR > 0 && COORDS.x >= BOX.w - BANDR;
+    const bool ONT = BANDT > 0 && COORDS.y < BANDT;
+    const bool ONB = BANDB > 0 && COORDS.y >= BOX.h - BANDB;
 
     if (ONL && ONT) return "top_left_corner";
     if (ONR && ONT) return "top_right_corner";
@@ -355,13 +376,13 @@ void CHyprWindowDecorator::applyResizeCursor()
     }
 
     const auto COORDS = cursorRelativeToBar();
-    const auto BOX    = assignedBoxGlobal();
-    const bool ONDECO = VECINRECT(COORDS, 0, 0, BOX.w, BOX.h);
 
-    // An item under the pointer keeps its own cursor (buttons must look clickable).
-    const bool ONITEM = ONDECO && (elementIndexAt(COORDS) != -1 || indexToButton(COORDS) != -1);
+    // An item under the pointer keeps its own cursor (buttons must look clickable). The
+    // band test itself is resizeEdgeAt(), the SAME call the resize action makes, so the
+    // cursor and the grab zone are identical by construction.
+    const bool ONITEM = elementIndexAt(COORDS) != -1 || indexToButton(COORDS) != -1;
 
-    const char *SHAPE = (!ONDECO || ONITEM) ? nullptr : resizeCursorName(COORDS);
+    const char *SHAPE = ONITEM ? nullptr : resizeEdgeAt(COORDS);
 
     if (SHAPE)
     {
@@ -2220,42 +2241,12 @@ bool CHyprWindowDecorator::isPointOnBar(Vector2D COORDS)
     return true;
 }
 
-// Is COORDS inside the resize band along the frame's OUTER edge?
-//
-// Hyprland's own border resize runs in processMouseDownNormal() AFTER
-// checkInputOnDecorations(), and only outside the window's geometric box. The frame
-// occupies that box's border, so it swallowed the press and no resize ever started
-// there. This band puts the resize back on the frame itself.
-//
-// The band is measured inward from the decoration box edge, and is CLIPPED to the
-// reserved extent on each side: where the frame is thin (right, 10px in the orange
-// theme) the band shrinks with it, so it can never reach into the client area or over a
-// frame button.
+// Is COORDS inside the resize band? Delegates to resizeEdgeAt() so the ACTION and the
+// CURSOR answer from one expression; this used to be a second copy of the same maths and
+// the two disagreed at the box boundary.
 bool CHyprWindowDecorator::isInResizeBand(Vector2D COORDS)
 {
-    const double W = gPlugin->cfg.resizeGrabWidth * (gPlugin->cfg.defaultScale > 0 ? (double)gPlugin->cfg.defaultScale : 1.0);
-    if (W <= 0)
-        return false;
-
-    const auto BOX = assignedBoxGlobal();
-    if (!VECINRECT(COORDS, 0, 0, BOX.w, BOX.h))
-        return false;
-
-    const auto EXT = currentExtents();
-    const double L = EXT.topLeft.x, T = EXT.topLeft.y;
-    const double R = EXT.bottomRight.x, B = EXT.bottomRight.y;
-
-    const double BANDL = std::min(W, L);
-    const double BANDR = std::min(W, R);
-    const double BANDT = std::min(W, T);
-    const double BANDB = std::min(W, B);
-
-    // A zero-width side cannot host a band (nothing of the frame is there).
-    if ((BANDL > 0 && COORDS.x < BANDL) || (BANDR > 0 && COORDS.x >= BOX.w - BANDR) || (BANDT > 0 && COORDS.y < BANDT)
-        || (BANDB > 0 && COORDS.y >= BOX.h - BANDB))
-        return true;
-
-    return false;
+    return resizeEdgeAt(COORDS) != nullptr;
 }
 
 eDecorationLayer CHyprWindowDecorator::getDecorationLayer()

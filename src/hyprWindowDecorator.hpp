@@ -152,7 +152,10 @@ private:
   // the resize icon on the frame. These re-apply it for the band, after Hyprland's pass.
   void requestResizeCursorUpdate();
   void applyResizeCursor();
-  const char *resizeCursorName(Vector2D COORDS);
+  // Which resize edge COORDS is on ("left_side", "top_left_corner", ...) or nullptr.
+  // THE single source of truth for the band: both the resize ACTION and the resize
+  // CURSOR call it, so they cannot drift apart.
+  const char *resizeEdgeAt(Vector2D COORDS);
   bool m_bResizeCursorPending = false;
   // True while THIS decorator owns the shared window-edge cursor override, so it never
   // clears one another window set.
