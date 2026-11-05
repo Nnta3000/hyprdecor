@@ -146,6 +146,17 @@ private:
   void requestMinSizeClamp();
   void enforceMinSize();
   bool m_bMinSizeClampPending = false;
+
+  // Resize CURSOR over the band. Hyprland's own setCursorIconOnBorder() measures a band
+  // around the CLIENT surface and skips any point inside a decoration, so it never shows
+  // the resize icon on the frame. These re-apply it for the band, after Hyprland's pass.
+  void requestResizeCursorUpdate();
+  void applyResizeCursor();
+  const char *resizeCursorName(Vector2D COORDS);
+  bool m_bResizeCursorPending = false;
+  // True while THIS decorator owns the shared window-edge cursor override, so it never
+  // clears one another window set.
+  bool m_bResizeCursorActive = false;
   void onMouseButton(Event::SCallbackInfo &info, IPointer::SButtonEvent e);
   void onTouchDown(Event::SCallbackInfo &info, ITouch::SDownEvent e);
   void onTouchUp(Event::SCallbackInfo &info, ITouch::SUpEvent e);

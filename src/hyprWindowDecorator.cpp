@@ -38,6 +38,7 @@
 #include "titlebox.hpp"
 #include "itemstate.hpp"
 #include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
+#include <hyprland/src/pointer/cursor/CursorShapeOverrideController.hpp>
 
 // Dispatcher helpers. Defined further down with the dispatcher notes, but used by the
 // pointer handlers above them.
@@ -272,6 +273,12 @@ void CHyprWindowDecorator::onTouchUp(Event::SCallbackInfo &info, [[maybe_unused]
 
 void CHyprWindowDecorator::onMouseMove([[maybe_unused]] Vector2D coords)
 {
+    // The resize cursor for OUR band must be re-applied after Hyprland's own.
+    // setCursorIconOnBorder() runs at the END of mouseMoveUnified(), i.e. AFTER this
+    // listener, so setting the override here would be overwritten every frame. doLater
+    // schedules a Wayland idle callback, which is after that function has returned.
+    requestResizeCursorUpdate();
+
     if (m_bTouchEv || !validMapped(m_pWindow) || m_touchId != 0)
         return;
 
@@ -285,6 +292,116 @@ void CHyprWindowDecorator::onMouseMove([[maybe_unused]] Vector2D coords)
 
     m_bDragPending = false;
     handleMovement();
+}
+
+// Map the resize band to an edge/corner shape, in the same vocabulary Hyprland uses in
+// setCursorIconOnBorder() so the same theme sprites are picked.
+const char *CHyprWindowDecorator::resizeCursorName(Vector2D COORDS)
+{
+    const auto W      = gPlugin->cfg.resizeGrabWidth * (gPlugin->cfg.defaultScale > 0 ? (double)gPlugin->cfg.defaultScale : 1.0);
+    const auto BOX    = assignedBoxGlobal();
+    const auto EXT    = currentExtents();
+    const double L = EXT.topLeft.x, T = EXT.topLeft.y, R = EXT.bottomRight.x, B = EXT.bottomRight.y;
+
+    const bool ONL = W > 0 && L > 0 && COORDS.x < std::min(W, L);
+    const bool ONR = W > 0 && R > 0 && COORDS.x >= BOX.w - std::min(W, R);
+    const bool ONT = W > 0 && T > 0 && COORDS.y < std::min(W, T);
+    const bool ONB = W > 0 && B > 0 && COORDS.y >= BOX.h - std::min(W, B);
+
+    if (ONL && ONT) return "top_left_corner";
+    if (ONR && ONT) return "top_right_corner";
+    if (ONL && ONB) return "bottom_left_corner";
+    if (ONR && ONB) return "bottom_right_corner";
+    if (ONL) return "left_side";
+    if (ONR) return "right_side";
+    if (ONT) return "top_side";
+    if (ONB) return "bottom_side";
+    return nullptr;
+}
+
+// Keep the WINDOW_EDGE override in sync with the band. One slot is shared with Hyprland's
+// own border logic, so leaving the band must UNSET it rather than set an arrow -- Hyprland
+// will repaint its own answer on the next move.
+void CHyprWindowDecorator::applyResizeCursor()
+{
+    if (!gPlugin->enabled || !validMapped(m_pWindow) || !Pointer::Cursor::overrideController)
+        return;
+
+    // Never fight a real resize/drag in progress.
+    if (g_layoutManager && g_layoutManager->dragController()->target())
+        return;
+
+    const auto PWINDOW = m_pWindow.lock();
+    if (Fullscreen::controller()->isFullscreen(PWINDOW))
+        return;
+
+    // Only the decorator under the POINTER may touch the shared override slot.
+    // Otherwise every other decorated window would also run this and unset the override
+    // that the hovered one just set, leaving whichever ran last as the winner.
+    const auto HITTESTER = Desktop::viewState()->hitTest();
+    const auto CURSOR    = g_pInputManager->getMouseCoordsInternal();
+    const auto UNDER     = HITTESTER.windowAt(CURSOR, Desktop::View::RESERVED_EXTENTS | Desktop::View::INPUT_EXTENTS | Desktop::View::ALLOW_FLOATING);
+
+    if (UNDER != PWINDOW)
+    {
+        // Not us any more: clear only if WE were the last to set it. Hyprland repaints
+        // its own answer on the next move, so unsetting is always safe here.
+        if (m_bResizeCursorActive)
+        {
+            Pointer::Cursor::overrideController->unsetOverride(Pointer::Cursor::CURSOR_OVERRIDE_WINDOW_EDGE);
+            m_bResizeCursorActive = false;
+        }
+        return;
+    }
+
+    const auto COORDS = cursorRelativeToBar();
+    const auto BOX    = assignedBoxGlobal();
+    const bool ONDECO = VECINRECT(COORDS, 0, 0, BOX.w, BOX.h);
+
+    // An item under the pointer keeps its own cursor (buttons must look clickable).
+    const bool ONITEM = ONDECO && (elementIndexAt(COORDS) != -1 || indexToButton(COORDS) != -1);
+
+    const char *SHAPE = (!ONDECO || ONITEM) ? nullptr : resizeCursorName(COORDS);
+
+    if (SHAPE)
+    {
+        Pointer::Cursor::overrideController->setOverride(SHAPE, Pointer::Cursor::CURSOR_OVERRIDE_WINDOW_EDGE);
+        m_bResizeCursorActive = true;
+    }
+    else if (m_bResizeCursorActive)
+    {
+        Pointer::Cursor::overrideController->unsetOverride(Pointer::Cursor::CURSOR_OVERRIDE_WINDOW_EDGE);
+        m_bResizeCursorActive = false;
+    }
+}
+
+void CHyprWindowDecorator::requestResizeCursorUpdate()
+{
+    if (m_bResizeCursorPending || !g_pEventLoopManager)
+        return;
+
+    m_bResizeCursorPending = true;
+
+    g_pEventLoopManager->doLater([this]() {
+        m_bResizeCursorPending = false;
+
+        // Owned by Hyprland and possibly gone before this runs.
+        if (!gPlugin)
+            return;
+
+        bool alive = false;
+        for (auto *d : gPlugin->liveDecorators())
+            if (d == this)
+            {
+                alive = true;
+                break;
+            }
+
+        if (!alive)
+            return;
+
+        applyResizeCursor();
+    });
 }
 
 void CHyprWindowDecorator::onTouchMove([[maybe_unused]] Event::SCallbackInfo &info, ITouch::SMotionEvent e)
