@@ -137,6 +137,10 @@ private:
   // True when COORDS (decoration-local) is in the band along the OUTER edge that starts a
   // resize instead of a drag or an item click.
   bool isInResizeBand(Vector2D COORDS);
+
+  // Clamp the window up to the frame's nine-patch minimum, so the decoration can never
+  // be squeezed into collapse. Called from updateWindow(), i.e. on every size change.
+  void enforceMinSize();
   void onMouseButton(Event::SCallbackInfo &info, IPointer::SButtonEvent e);
   void onTouchDown(Event::SCallbackInfo &info, ITouch::SDownEvent e);
   void onTouchUp(Event::SCallbackInfo &info, ITouch::SUpEvent e);

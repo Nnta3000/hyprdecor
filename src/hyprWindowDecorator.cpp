@@ -1992,7 +1992,53 @@ eDecorationType CHyprWindowDecorator::getDecorationType()
 
 void CHyprWindowDecorator::updateWindow([[maybe_unused]] PHLWINDOW pWindow)
 {
+    enforceMinSize();
     damageEntire();
+}
+
+// Keep the window at least as large as the frame's own nine-patch minimum.
+//
+// The frame cannot render below `border L+R` by `border T+B`; below that the corners
+// overlap and the decoration collapses -- which is what happened when the window was
+// resized small. Hyprland's own floor is MIN_WINDOW_SIZE (20), far below any real frame,
+// and clampWindowSize() is the same call the `min_size` window rule makes.
+//
+// The minimum is the nine-patch border (the non-stretchable corners) plus the reserved
+// inset, times the art scale. Client minimums the app declared are respected: the
+// larger of the two wins.
+void CHyprWindowDecorator::enforceMinSize()
+{
+    const auto PWINDOW = m_pWindow.lock();
+    if (!PWINDOW || !validMapped(PWINDOW))
+        return;
+
+    if (Fullscreen::controller()->isFullscreen(PWINDOW))
+        return;
+
+    const auto &NPI = m_bWindowHasFocus ? gPlugin->activeNinepatch : gPlugin->inactiveNinepatch;
+    if (!NPI.defined)
+        return;
+
+    const double SC = (double)std::max(1, gPlugin->cfg.artScale);
+
+    // The nine-patch needs its two corners plus at least one pixel of stretch band.
+    double minW = (NPI.border[0] + NPI.border[2]) * SC + 1.0;
+    double minH = (NPI.border[1] + NPI.border[3]) * SC + 1.0;
+
+    // The app's own minimum still applies; never shrink below it.
+    if (const auto CLIENTMIN = PWINDOW->minSize(); CLIENTMIN.has_value())
+    {
+        minW = std::max(minW, CLIENTMIN->x);
+        minH = std::max(minH, CLIENTMIN->y);
+    }
+
+    // Only clamp UP: shrinking is the failure we are preventing, and clamping down on
+    // every update would fight the user.
+    const auto SIZE = PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_GOAL);
+    if (SIZE.x >= minW && SIZE.y >= minH)
+        return;
+
+    PWINDOW->clampWindowSize(Vector2D{minW, minH}, std::nullopt);
 }
 
 void CHyprWindowDecorator::damageEntire()
