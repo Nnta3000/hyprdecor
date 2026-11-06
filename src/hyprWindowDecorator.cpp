@@ -79,8 +79,11 @@ CHyprWindowDecorator::CHyprWindowDecorator(PHLWINDOW pWindow) : IHyprWindowDecor
 {
     m_pWindow = pWindow;
 
-    const auto PMONITOR = pWindow->m_monitor.lock();
-    PMONITOR->m_scheduledRecalc = true;
+    // A window can be opened before it is attached to a monitor: Electron and
+    // Thunderbird both create transient/helper windows while starting. Dereferencing a
+    // missing monitor here crashes the compositor, so only touch it when it exists.
+    if (const auto PMONITOR = pWindow->m_monitor.lock())
+        PMONITOR->m_scheduledRecalc = true;
 
     m_pAppIconTex = makeShared<Render::GL::CGLTexture>();
 
@@ -195,8 +198,14 @@ bool CHyprWindowDecorator::inputIsValid()
     if (!gPlugin->enabled)
         return false;
 
-    if (!m_pWindow->m_workspace || !m_pWindow->m_workspace->visible() || !g_pInputManager->m_exclusiveKeyboardLSes.empty() ||
-        (g_pSeatManager->m_seatGrab && !g_pSeatManager->m_seatGrab->accepts(m_pWindow->wlSurface()->resource())))
+    // Pointer/touch events are global listeners; the window they refer to can already
+    // be gone by the time this decorator handles the event.
+    const auto PWINDOW = m_pWindow.lock();
+    if (!PWINDOW)
+        return false;
+
+    if (!PWINDOW->m_workspace || !PWINDOW->m_workspace->visible() || !g_pInputManager->m_exclusiveKeyboardLSes.empty() ||
+        (g_pSeatManager->m_seatGrab && !g_pSeatManager->m_seatGrab->accepts(PWINDOW->wlSurface()->resource())))
         return false;
 
     const auto HITTESTER = Desktop::viewState()->hitTest();
@@ -208,7 +217,7 @@ bool CHyprWindowDecorator::inputIsValid()
     auto window = focusState->window();
     auto monitor = focusState->monitor();
 
-    if (WINDOWATCURSOR != m_pWindow && m_pWindow != window)
+    if (WINDOWATCURSOR != PWINDOW && PWINDOW != window)
         return false;
 
     // check if input is on top or overlay shell layers
@@ -2321,7 +2330,12 @@ PHLWINDOW CHyprWindowDecorator::getOwner()
 
 void CHyprWindowDecorator::updateRules()
 {
+    // window.updateRules can arrive after the window has gone away; there is nothing
+    // left to read the rules from in that case.
     const auto PWINDOW = m_pWindow.lock();
+    if (!PWINDOW)
+        return;
+
     auto prevHidden = m_hidden;
     auto prevForcedTitleColor = m_bForcedTitleColor;
 
