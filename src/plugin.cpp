@@ -371,6 +371,7 @@ std::string CPlugin::statusString() const
     std::string out;
 
     out += std::format("hyprdecor status (this={})\n", (const void *)this);
+    out += std::format("  version:           {} ({} built {})\n", HYPRDECOR_VERSION, HYPRDECOR_GIT_COMMIT, HYPRDECOR_BUILD_DATE);
     out += std::format("  loaded:            yes\n");
     out += std::format("  setup() applied:   {}\n", setup_applied ? "yes" : "no");
     out += std::format("  texture (base):    {}\n", ninepatch_texture.empty() ? "(none)" : ninepatch_texture);

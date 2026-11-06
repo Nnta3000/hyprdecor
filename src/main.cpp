@@ -11,6 +11,7 @@
 #include <hyprland/src/desktop/rule/windowRule/WindowRuleEffectContainer.hpp>
 
 #include <algorithm>
+#include <format>
 
 #include "hyprWindowDecorator.hpp"
 #include "plugin.hpp"
@@ -86,6 +87,9 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
 {
     gPlugin = std::make_unique<CPlugin>(handle);
 
+    Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] loaded version {} ({} built {})", HYPRDECOR_VERSION, HYPRDECOR_GIT_COMMIT,
+                                             HYPRDECOR_BUILD_DATE));
+
     const std::string HASH = __hyprland_api_get_hash();
     const std::string CLIENT_HASH = __hyprland_api_get_client_hash();
 
@@ -151,7 +155,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
     // inside it, and setup() schedules the update itself. Just make sure one runs.
     gPlugin->requestUpdate();
 
-    return {"hyprdecor", "A plugin to add title bars to windows.", "Vaxry", "1.0"};
+    return {"hyprdecor", "Nine-patch window decorations", "CapsAdmin", HYPRDECOR_VERSION " (" HYPRDECOR_GIT_COMMIT ")"};
 }
 
 APICALL EXPORT void PLUGIN_EXIT()

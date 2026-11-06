@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.27)
 
 project(hyprdecor
     DESCRIPTION "hyprdecor plugin for Hyprland"
-    VERSION 0.1
+    VERSION 0.2.0
 )
 
 set(CMAKE_CXX_STANDARD 23)
@@ -11,6 +11,28 @@ file(GLOB_RECURSE SRC "src/*.cpp")
 
 add_library(hyprdecor SHARED ${SRC})
 set_target_properties(hyprdecor PROPERTIES PREFIX "")
+
+# Identify the exact build that is loaded. `hyprctl plugin list` shows
+# HYPRDECOR_VERSION, and `hyprctl hyprdecor status` prints the version, commit and build
+# date. The commit suffix means a locally rebuilt .so is distinguishable even when the
+# semantic version has not changed.
+execute_process(
+    COMMAND git describe --always --dirty
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE HYPRDECOR_GIT_COMMIT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT HYPRDECOR_GIT_COMMIT)
+    set(HYPRDECOR_GIT_COMMIT "unknown")
+endif()
+string(TIMESTAMP HYPRDECOR_BUILD_DATE "%Y-%m-%d %H:%M")
+
+target_compile_definitions(hyprdecor PRIVATE
+    HYPRDECOR_VERSION="${PROJECT_VERSION}"
+    HYPRDECOR_GIT_COMMIT="${HYPRDECOR_GIT_COMMIT}"
+    HYPRDECOR_BUILD_DATE="${HYPRDECOR_BUILD_DATE}"
+)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(deps REQUIRED IMPORTED_TARGET
