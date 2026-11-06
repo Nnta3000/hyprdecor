@@ -147,6 +147,18 @@ private:
   void enforceMinSize();
   bool m_bMinSizeClampPending = false;
 
+  // Last clamp attempt that did not stick. A fixed-size window (Vesktop's 5x5 loading
+  // window, for example) ignores the clamp and stays the same size, and re-issuing the
+  // identical request would loop: clampWindowSize() -> layout -> updateWindow() ->
+  // requestMinSizeClamp() -> enforceMinSize(). Remembering both the window size and the
+  // requested minimum lets a real resize (which changes the size) try again.
+  //
+  // Deliberately NOT cleared when the size satisfies the minimum: a fixed-size client can
+  // accept the clamp for one layout pass and then revert, and clearing here would re-arm
+  // the loop. A shrink to a different size is a different key and is still clamped once.
+  Vector2D m_vLastMinSizeClampSize = {-1, -1};
+  Vector2D m_vLastMinSizeClampMin  = {-1, -1};
+
   // Resize CURSOR over the band. Hyprland's own setCursorIconOnBorder() measures a band
   // around the CLIENT surface and skips any point inside a decoration, so it never shows
   // the resize icon on the frame. These re-apply it for the band, after Hyprland's pass.

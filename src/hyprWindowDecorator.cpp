@@ -2235,8 +2235,25 @@ void CHyprWindowDecorator::enforceMinSize()
     if (SIZE.x >= minW && SIZE.y >= minH)
         return;
 
+    // A client whose own maximum is below the frame's minimum can never satisfy this
+    // clamp. Trying anyway sends clampWindowSize() through layout, which queues another
+    // clamp forever. The 5x5 Vesktop loading window is exactly this case.
+    if (const auto MAX = PWINDOW->maxSize(); MAX.has_value() && MAX->x > 0 && MAX->y > 0 && (MAX->x < minW || MAX->y < minH))
+        return;
+
+    const Vector2D WANT{minW, minH};
+
+    // A fixed-size/splash window can ignore the clamp and stay at the same size. Issuing
+    // the identical request again cannot change the outcome, so stop after one attempt.
+    // A real resize changes SIZE and lets the next attempt through.
+    if (SIZE == m_vLastMinSizeClampSize && WANT == m_vLastMinSizeClampMin)
+        return;
+
+    m_vLastMinSizeClampSize = SIZE;
+    m_vLastMinSizeClampMin  = WANT;
+
     // No callback runs from here: we are already outside the layout pass.
-    PWINDOW->clampWindowSize(Vector2D{minW, minH}, std::nullopt);
+    PWINDOW->clampWindowSize(WANT, std::nullopt);
 }
 
 void CHyprWindowDecorator::damageEntire()
