@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.27)
 
 project(hyprdecor
     DESCRIPTION "hyprdecor plugin for Hyprland"
-    VERSION 0.3.0
+    VERSION 0.3.1
 )
 
 set(CMAKE_CXX_STANDARD 23)
