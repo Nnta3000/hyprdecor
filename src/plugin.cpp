@@ -331,12 +331,21 @@ CPlugin::CPlugin(HANDLE handle)
     // is filled by hl.plugin.hyprdecor.setup().
 }
 
+static void destroyFrame(SFrame &F)
+{
+    if (F.activeSurface)
+        cairo_surface_destroy(F.activeSurface);
+    if (F.inactiveSurface && F.inactiveSurface != F.activeSurface)
+        cairo_surface_destroy(F.inactiveSurface);
+    F.activeSurface   = nullptr;
+    F.inactiveSurface = nullptr;
+}
+
 CPlugin::~CPlugin()
 {
-    if (frame.activeSurface)
-        cairo_surface_destroy(frame.activeSurface);
-    if (frame.inactiveSurface && frame.inactiveSurface != frame.activeSurface)
-        cairo_surface_destroy(frame.inactiveSurface);
+    destroyFrame(frame);
+    for (auto &[name, F] : themes)
+        destroyFrame(F);
 }
 
 // Read a config value's data pointer, or nullptr if the option is not
@@ -387,6 +396,14 @@ std::string CPlugin::statusString() const
     out += std::format("  offsets L/T/R/B:   {} {} {} {}\n",
                        frame.decoration_offset_left, frame.decoration_offset_top, frame.decoration_offset_right, frame.decoration_offset_bottom);
     out += std::format("  enabled:           {}\n", enabled ? "yes" : "no");
+    std::string themeList;
+    for (const auto &[name, F] : themes)
+    {
+        if (!themeList.empty())
+            themeList += ", ";
+        themeList += name;
+    }
+    out += std::format("  themes:            {}\n", themes.empty() ? "(none)" : themeList);
     out += std::format("  decorated windows: {}\n", liveDecorators().size());
     out += std::format("  canvas (last):     {}x{}\n", lastBarW, lastBarH);
     out += std::format("  drawn (last):      {}\n", lastDrawn ? "yes" : "no");
@@ -414,6 +431,94 @@ std::string CPlugin::statusString() const
     out += "\n] }\n";
 
     return out;
+}
+
+SFrame CPlugin::resolveFrame(const SConfig &C, const STheme *theme)
+{
+    SFrame F;
+
+    const std::string TEXTURE = theme && theme->textureBase ? *theme->textureBase : C.textureBase;
+    const int         SC      = std::max(1, theme && theme->artScale ? *theme->artScale : C.artScale);
+    const bool        LINEAR  = theme && theme->linearFiltering ? *theme->linearFiltering : C.linearFiltering;
+    const bool        REPEAT  = theme && theme->repeat ? *theme->repeat : C.repeat;
+
+    const auto PICK = [](double themeValue, double fallbackValue) { return themeValue >= 0 ? themeValue : fallbackValue; };
+    const double TH_L = theme ? PICK(theme->thickness.left, C.thickness.left) : C.thickness.left;
+    const double TH_T = theme ? PICK(theme->thickness.top, C.thickness.top) : C.thickness.top;
+    const double TH_R = theme ? PICK(theme->thickness.right, C.thickness.right) : C.thickness.right;
+    const double TH_B = theme ? PICK(theme->thickness.bottom, C.thickness.bottom) : C.thickness.bottom;
+    const double IN_L = theme ? PICK(theme->inset.left, C.inset.left) : C.inset.left;
+    const double IN_T = theme ? PICK(theme->inset.top, C.inset.top) : C.inset.top;
+    const double IN_R = theme ? PICK(theme->inset.right, C.inset.right) : C.inset.right;
+    const double IN_B = theme ? PICK(theme->inset.bottom, C.inset.bottom) : C.inset.bottom;
+
+    const std::string ACTIVE   = resolveTexturePath(TEXTURE, {"_active", "_focused", "active", ""});
+    const std::string INACTIVE = resolveTexturePath(TEXTURE, {"_inactive", "_unfocused", "inactive"}, ACTIVE);
+
+    if (!TEXTURE.empty() && ACTIVE.empty())
+        notifyError(std::format("texture not found: \"{}\"", TEXTURE));
+
+    SNinePatchInfo newActiveNPI, newInactiveNPI;
+    auto newActiveSurface = loadSurface(ACTIVE, &newActiveNPI);
+    auto newInactiveSurface = (INACTIVE == ACTIVE || INACTIVE.empty()) ? nullptr : loadSurface(INACTIVE, &newInactiveNPI);
+
+    if (!ACTIVE.empty() && !newActiveSurface)
+        notifyError(std::format("failed to load texture: \"{}\"", ACTIVE));
+    else if (newActiveSurface && !newActiveNPI.defined)
+        Log::logger->log(Log::WARN, std::format("[HYPRDECOR] \"{}\" has no nine-patch metadata (1px marker border); stretched as a whole image", ACTIVE));
+
+    F.activeSurface   = newActiveSurface;
+    F.inactiveSurface = newInactiveSurface ? newInactiveSurface : newActiveSurface;
+    F.activeNinepatch   = newActiveNPI;
+    F.inactiveNinepatch = newInactiveSurface ? newInactiveNPI : newActiveNPI;
+    F.ninepatch_texture  = TEXTURE;
+    F.ninepatch_active   = ACTIVE;
+    F.ninepatch_inactive = INACTIVE;
+    F.artScale           = SC;
+    F.linearFiltering    = LINEAR;
+    F.repeat             = REPEAT;
+
+    static const SNinePatchInfo EMPTY_NPI;
+    const SNinePatchInfo &RESOLVE = newActiveNPI.defined ? newActiveNPI : EMPTY_NPI;
+
+    const auto SIDE = [&](double explicitValue, float marker, float borderPx) -> int
+    {
+        if (explicitValue >= 0)
+            return (int)std::lround(explicitValue);
+        if (marker > 0)
+            return (int)std::lround(marker);
+        return (int)std::lround(borderPx);
+    };
+
+    F.decoration_offset_left   = SIDE(TH_L, RESOLVE.padding[0], RESOLVE.border[0]) * SC;
+    F.decoration_offset_top    = SIDE(TH_T, RESOLVE.padding[1], RESOLVE.border[1]) * SC;
+    F.decoration_offset_right  = SIDE(TH_R, RESOLVE.padding[2], RESOLVE.border[2]) * SC;
+    F.decoration_offset_bottom = SIDE(TH_B, RESOLVE.padding[3], RESOLVE.border[3]) * SC;
+
+    const auto INSET = [&](double v) { return v >= 0 ? (int)std::lround(v * SC) : 0; };
+    F.inset_left   = INSET(IN_L);
+    F.inset_top    = INSET(IN_T);
+    F.inset_right  = INSET(IN_R);
+    F.inset_bottom = INSET(IN_B);
+
+    Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] resolved frame \"{}\" extents L{} T{} R{} B{} at scale={} (markers: padding {} {} {} {}, border {} {} {} {})",
+                                             TEXTURE, F.decoration_offset_left, F.decoration_offset_top, F.decoration_offset_right, F.decoration_offset_bottom, SC,
+                                             (int)RESOLVE.padding[0], (int)RESOLVE.padding[1], (int)RESOLVE.padding[2], (int)RESOLVE.padding[3],
+                                             (int)RESOLVE.border[0], (int)RESOLVE.border[1], (int)RESOLVE.border[2], (int)RESOLVE.border[3]));
+
+    if (F.inset_left || F.inset_top || F.inset_right || F.inset_bottom)
+        Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] inset L{} T{} R{} B{} (added to the art, reserved box grows; no gap is drawn)",
+                                                 F.inset_left, F.inset_top, F.inset_right, F.inset_bottom));
+
+    return F;
+}
+
+const SFrame &CPlugin::frameFor(const std::string &name) const
+{
+    if (name.empty())
+        return frame;
+    const auto IT = themes.find(name);
+    return IT == themes.end() ? frame : IT->second;
 }
 
 void CPlugin::update()
@@ -448,97 +553,22 @@ void CPlugin::update()
     bar_outline_width          = C.outlineWidth;
     bar_outline_always         = C.outlineAlways;
 
-    // Per-side reserved space, resolved with the documented precedence:
-    // explicit value, then the nine-patch padding marker, then its border size.
-    // Resolved after the texture is parsed, below.
+    // Build the default frame and every named theme from the same resolver.
+    destroyFrame(frame);
+    for (auto &[name, F] : themes)
+        destroyFrame(F);
+    themes.clear();
 
-    const std::string NINEPATCHACTIVE   = resolveTexturePath(C.textureBase, {"_active", "_focused", "active", ""});
-    const std::string NINEPATCHINACTIVE = resolveTexturePath(C.textureBase, {"_inactive", "_unfocused", "inactive"}, NINEPATCHACTIVE);
-
-    if (!C.textureBase.empty() && NINEPATCHACTIVE.empty())
-        notifyError(std::format("texture not found: \"{}\"", C.textureBase));
-
-    // Refresh surfaces
-    SNinePatchInfo newActiveNPI, newInactiveNPI;
-    auto newActiveSurface = loadSurface(NINEPATCHACTIVE, &newActiveNPI);
-    auto newInactiveSurface = (NINEPATCHINACTIVE == NINEPATCHACTIVE || NINEPATCHINACTIVE.empty()) ? nullptr : loadSurface(NINEPATCHINACTIVE, &newInactiveNPI);
-
-    // Hard error: the file exists but is not a readable PNG.
-    if (!NINEPATCHACTIVE.empty() && !newActiveSurface)
-    {
-        notifyError(std::format("failed to load texture: \"{}\"", NINEPATCHACTIVE));
-    }
-    else if (newActiveSurface && !newActiveNPI.defined)
-    {
-        Log::logger->log(Log::WARN, std::format("[HYPRDECOR] \"{}\" has no nine-patch metadata (1px marker border); stretched as a whole image", NINEPATCHACTIVE));
-    }
-
-    if (frame.activeSurface)
-        cairo_surface_destroy(frame.activeSurface);
-    if (frame.inactiveSurface && frame.inactiveSurface != frame.activeSurface)
-        cairo_surface_destroy(frame.inactiveSurface);
-
-    frame.activeSurface   = newActiveSurface;
-    frame.inactiveSurface = newInactiveSurface ? newInactiveSurface : newActiveSurface;
-    frame.activeNinepatch   = newActiveNPI;
-    frame.inactiveNinepatch = newInactiveSurface ? newInactiveNPI : newActiveNPI;
-    frame.ninepatch_active   = NINEPATCHACTIVE;
-    frame.ninepatch_inactive = NINEPATCHINACTIVE;
-    frame.ninepatch_texture  = C.textureBase;
-
-    // Resolved per-side reserved space, using the documented precedence:
-    // explicit value -> nine-patch padding marker -> nine-patch border size.
-    // Corner sizes (border) mark where the art stops stretching, which is the closest
-    // thing to "how much the frame occupies" when padding markers are absent.
-    static const SNinePatchInfo EMPTY_NPI;
-    const SNinePatchInfo &RESOLVE = newActiveNPI.defined ? newActiveNPI : EMPTY_NPI;
-
-    const auto SIDE = [&](double explicitValue, float marker, float borderPx) -> int
-    {
-        if (explicitValue >= 0)
-            return (int)std::lround(explicitValue);
-        if (marker > 0)
-            return (int)std::lround(marker);
-        return (int)std::lround(borderPx);
-    };
-
-    // border.scale magnifies the frame art, so the space it occupies grows with it.
-    // Reserved space and rendering must use the same factor or the frame overlaps the
-    // window (or leaves a gap).
-    const int SC = std::max(1, C.artScale);
-
-    frame.artScale = SC;
-    frame.decoration_offset_left   = SIDE(C.thickness.left, RESOLVE.padding[0], RESOLVE.border[0]) * SC;
-    frame.decoration_offset_top    = SIDE(C.thickness.top, RESOLVE.padding[1], RESOLVE.border[1]) * SC;
-    frame.decoration_offset_right  = SIDE(C.thickness.right, RESOLVE.padding[2], RESOLVE.border[2]) * SC;
-    frame.decoration_offset_bottom = SIDE(C.thickness.bottom, RESOLVE.padding[3], RESOLVE.border[3]) * SC;
-
-    // inset is additional space on top of the art. It is NOT drawn as a gap: the
-    // reserved box and the box the nine-patch stretches over are the same rectangle.
-    //
-    // Scaled here, not in frameMetrics: the reserved extents are built from inset_left..
-    // (see currentExtents()), so both must use the SAME number or the frame overlaps the
-    // window by exactly the amount one side forgot to scale.
-    const auto INSET = [&](double v) { return v >= 0 ? (int)std::lround(v * SC) : 0; };
-    frame.inset_left   = INSET(C.inset.left);
-    frame.inset_top    = INSET(C.inset.top);
-    frame.inset_right  = INSET(C.inset.right);
-    frame.inset_bottom = INSET(C.inset.bottom);
-
-    Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] resolved extents L{} T{} R{} B{} at border.scale={} (markers: padding {} {} {} {}, border {} {} {} {})",
-                                             frame.decoration_offset_left, frame.decoration_offset_top, frame.decoration_offset_right, frame.decoration_offset_bottom, SC,
-                                             (int)RESOLVE.padding[0], (int)RESOLVE.padding[1], (int)RESOLVE.padding[2], (int)RESOLVE.padding[3],
-                                             (int)RESOLVE.border[0], (int)RESOLVE.border[1], (int)RESOLVE.border[2], (int)RESOLVE.border[3]));
-
-    if (frame.inset_left || frame.inset_top || frame.inset_right || frame.inset_bottom)
-        Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] inset L{} T{} R{} B{} (added to the art, reserved box grows; no gap is drawn)",
-                                                 frame.inset_left, frame.inset_top, frame.inset_right, frame.inset_bottom));
+    frame = resolveFrame(C, nullptr);
+    for (const auto &[name, theme] : C.themes)
+        themes.emplace(name, resolveFrame(C, &theme));
 
     // Damage and update windows after all bars are invalidated
     for (auto bar : liveDecorators())
     {
         if (bar)
         {
+            bar->updateRules();
             bar->invalidateTextures();
             g_pDecorationPositioner->repositionDeco(bar);
 

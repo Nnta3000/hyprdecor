@@ -11,6 +11,7 @@
 
 #include "itemstate.hpp"
 
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -136,6 +137,27 @@ struct SElement
     std::string crossAlign = "centre"; // start | centre | end
     // Space around the element inside the flow.
     double marginLeft = 0, marginTop = 0, marginRight = 0, marginBottom = 0;
+};
+
+// Per-window frame override. Empty optionals inherit the corresponding default from
+// SConfig; each theme is resolved into its own SFrame at update() time.
+struct STheme
+{
+    std::optional<std::string> textureBase;
+    std::optional<int>         artScale;
+    std::optional<bool>        linearFiltering;
+    std::optional<bool>        repeat;
+    SFrameThickness            thickness;
+    SFrameThickness            inset;
+};
+
+// Plugin-side selection: the app id (Wayland app_id / X11 class) of a window. Kept as
+// a list rather than a custom Hyprland rule effect because the Lua syntax for custom
+// effects on this build is still unverified.
+struct SThemeRule
+{
+    std::string className;
+    std::string theme;
 };
 
 struct SConfig
@@ -294,6 +316,10 @@ struct SConfig
     uint64_t outlineColor  = 0xFFFFFFFF;
     int      outlineWidth  = 0;
     bool     outlineAlways = false;
+
+    // Per-window frame alternatives and the app-id rules that select them.
+    std::map<std::string, STheme> themes;
+    std::vector<SThemeRule>       rules;
 
     // Positioned images in the top band, drawn in order.
     std::vector<SElement> elements;

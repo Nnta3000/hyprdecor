@@ -8,6 +8,7 @@
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/ipc/s1/S1.hpp>
 #include <cairo/cairo.h>
+#include <map>
 #include "ninepatch.hpp"
 #include "config.hpp"
 
@@ -83,6 +84,10 @@ struct SFrame
 
     // Effective art scale, already clamped to at least 1.
     int artScale = 1;
+
+    // Resampling and tiling for this frame.
+    bool linearFiltering = true;
+    bool repeat          = false;
 };
 
 class CHyprWindowDecorator;
@@ -110,6 +115,12 @@ public:
 
     // Human-readable state, for `hyprctl hyprdecor status`.
     std::string statusString() const;
+
+    // The frame for a named theme, or the default frame when the name is empty/unknown.
+    const SFrame &frameFor(const std::string &name) const;
+
+    // Resolves a frame texture (and its metadata) for the default config or one theme.
+    SFrame resolveFrame(const SConfig &C, const STheme *theme);
 
     // First existing file for `base` + one of `suffixes`; empty when none match.
     std::string resolveTexturePath(const std::string &base, const std::vector<std::string> &suffixes, const std::string &fallback = "");
@@ -141,9 +152,9 @@ public:
     std::string on_double_click;
     std::string retro_shader;
 
-    // The default frame. Themes will add more SFrame entries; consumers already read
-    // their frame through this object rather than through scattered plugin fields.
+    // The default frame. Named themes are resolved into their own SFrame entries.
     SFrame frame;
+    std::map<std::string, SFrame> themes;
 
     // Values coming from hl.plugin.hyprdecor.setup(). They take precedence over the
     // flat plugin:hyprdecor:* config values, because setup() is the structured API.
@@ -200,6 +211,7 @@ public:
     uint32_t m_nobarRuleIdx = 0;
     uint32_t m_barColorRuleIdx = 0;
     uint32_t m_titleColorRuleIdx = 0;
+    uint32_t m_themeRuleIdx = 0;
     std::vector<CHyprSignalListener> m_vListeners;
 
     // The registered `hyprctl hyprdecor` command. 0.57 returns a SHARED pointer to the

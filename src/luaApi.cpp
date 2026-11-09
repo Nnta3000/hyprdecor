@@ -792,6 +792,96 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
         lua_pop(L, 1); // LIST
     }
 
+    // ---- themes ----------------------------------------------------------
+    // themes = { name = { border = { texture, scale, linear_filtering, repeat,
+    //                               thickness, inset } } }
+    if (tableField(L, CFG, "themes", "themes"))
+    {
+        const int THEMES = lua_gettop(L);
+        lua_pushnil(L);
+        while (lua_next(L, THEMES))
+        {
+            if (!lua_isstring(L, -2) || !lua_istable(L, -1))
+                return raise(L, "hyprdecor.setup: 'themes' keys must map to tables");
+
+            const std::string NAME = lua_tostring(L, -2);
+            const int THEME = lua_absindex(L, -1);
+            STheme T;
+
+            const char *BORDERKEY = hasField(L, THEME, "border") ? "border" : hasField(L, THEME, "frame") ? "frame" : nullptr;
+            if (BORDERKEY)
+            {
+                if (!tableField(L, THEME, BORDERKEY, std::format("themes.{}.{}", NAME, BORDERKEY).c_str()))
+                    return raise(L, "hyprdecor.setup: 'themes.{}' must be a table", NAME);
+
+                const int BORDER = lua_gettop(L);
+
+                if (hasField(L, BORDER, "texture"))
+                {
+                    const auto TEXTURE = stringField(L, BORDER, "texture");
+                    if (!TEXTURE || TEXTURE->empty())
+                        return raise(L, "hyprdecor.setup: 'themes.{}.{}.texture' must be a non-empty string", NAME, BORDERKEY);
+
+                    const std::string ACTIVE = gPlugin->resolveTexturePath(*TEXTURE, {"_active", "_focused", "active", ""});
+                    if (ACTIVE.empty())
+                        return raise(L, "hyprdecor.setup: theme texture not found: \"{}\"", *TEXTURE);
+
+                    T.textureBase = *TEXTURE;
+                }
+
+                if (hasField(L, BORDER, "scale"))
+                {
+                    const double TS = numberField(L, BORDER, "scale", 1);
+                    if (TS < 1 || TS != (int)TS)
+                        return raise(L, "hyprdecor.setup: 'themes.{}.{}.scale' must be a positive integer", NAME, BORDERKEY);
+                    T.artScale = (int)TS;
+                }
+                if (hasField(L, BORDER, "linear_filtering"))
+                    T.linearFiltering = boolField(L, BORDER, "linear_filtering", true);
+                if (hasField(L, BORDER, "repeat"))
+                    T.repeat = boolField(L, BORDER, "repeat", false);
+                if (hasField(L, BORDER, "thickness") && !readThickness(L, BORDER, T.thickness))
+                    return raise(L, "hyprdecor.setup: 'themes.{}.{}.thickness' must be a number or a table {{ left, top, right, bottom }}", NAME, BORDERKEY);
+                if (hasField(L, BORDER, "inset") && !readThicknessNamed(L, BORDER, "inset", T.inset))
+                    return raise(L, "hyprdecor.setup: 'themes.{}.{}.inset' must be a number or a table {{ left, top, right, bottom }}", NAME, BORDERKEY);
+
+                lua_pop(L, 1); // BORDER
+            }
+
+            NEXT.themes[NAME] = T;
+            lua_pop(L, 1); // value; key stays for lua_next
+        }
+        lua_pop(L, 1); // THEMES
+    }
+
+    // ---- rules -----------------------------------------------------------
+    // rules = { { class = "kitty", theme = "terminal" }, ... }
+    if (tableField(L, CFG, "rules", "rules"))
+    {
+        const int RULES = lua_gettop(L);
+        const lua_Integer N = luaL_len(L, RULES);
+        for (lua_Integer i = 1; i <= N; ++i)
+        {
+            lua_geti(L, RULES, i);
+            if (!lua_istable(L, -1))
+                return raise(L, "hyprdecor.setup: 'rules[{}]' must be a table", i);
+
+            const int RULE = lua_absindex(L, -1);
+            const auto CLASS = stringField(L, RULE, "class");
+            const auto THEME = stringField(L, RULE, "theme");
+            if (!CLASS || CLASS->empty())
+                return raise(L, "hyprdecor.setup: 'rules[{}].class' must be a non-empty string", i);
+            if (!THEME || THEME->empty())
+                return raise(L, "hyprdecor.setup: 'rules[{}].theme' must be a non-empty string", i);
+            if (!NEXT.themes.contains(*THEME))
+                return raise(L, "hyprdecor.setup: 'rules[{}]' refers to unknown theme \"{}\"", i, *THEME);
+
+            NEXT.rules.push_back({*CLASS, *THEME});
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1); // RULES
+    }
+
     // ---- commit -----------------------------------------------------------
     // Only after everything validated: setup() applies completely or not at all.
     NEXT.applies = gPlugin->cfg.applies + 1;
