@@ -11,7 +11,7 @@ cleanly to any window size without distorting its corners.
 <img width="754" height="628" alt="image" src="https://github.com/user-attachments/assets/483eb4c3-684b-4f32-9be8-e7b0adc6455a" />
 <img width="698" height="582" alt="image" src="https://github.com/user-attachments/assets/27b81efa-4656-4e1b-909a-c3d7895e5616" />
 
-> **Status:** works on Hyprland **0.56** with the **Lua config manager**. The config surface
+> **Status:** works on Hyprland **0.57** with the **Lua config manager**. The config surface
 > below is what works today. It is being extended into a regions-and-items layout (items on
 > all four sides, vertical buttons, flexible placement); see [ROADMAP.md](ROADMAP.md) and
 > [docs/SPEC.md](docs/SPEC.md). Expect additions, and a gradual move of the old `title` and
@@ -38,7 +38,7 @@ window's own frame belong in a shell such as quickshell.
 
 | | |
 |---|---|
-| Hyprland | 0.56.x, using the **Lua** config (`hyprland.lua`) |
+| Hyprland | 0.57.x, using the **Lua** config (`hyprland.lua`) |
 | Compiler | C++23 |
 | Libraries | cairo, pangocairo, pixman, libdrm, libinput, libudev, wayland-server, xkbcommon, Lua 5.5 (`pkg-config lua5.5`) |
 
@@ -71,10 +71,20 @@ nix run .#debug  # same, under gdb
 **hyprpm** (`hyprpm.toml` declares `output = "build/hyprdecor.so"`):
 
 ```bash
+# from a checkout
 hyprpm add .
+# or directly from the public repository
+hyprpm add https://github.com/Nnta3000/hyprdecor
+
 hyprpm update
 hyprpm enable hyprdecor
 ```
+
+`hyprpm add` clones the source and rebuilds it against the running Hyprland headers.
+That is why a source plugin does not need a prebuilt binary or a checksum: the build is
+matched to the compositor that will load it. If you publish a prebuilt `.so` instead,
+publish `sha256sum build/hyprdecor.so` next to it and state the exact Hyprland version
+and API hash it was built against; a mismatch is rejected at load time.
 
 ---
 
