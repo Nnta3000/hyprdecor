@@ -78,6 +78,7 @@ static Layout::eRectCorner cornerForEdge(const char *EDGE)
 CHyprWindowDecorator::CHyprWindowDecorator(PHLWINDOW pWindow) : IHyprWindowDecoration(pWindow)
 {
     m_pWindow = pWindow;
+    m_pFrame  = &gPlugin->frame;
 
     // A window can be opened before it is attached to a monitor: Electron and
     // Thunderbird both create transient/helper windows while starting. Dereferencing a
@@ -127,6 +128,11 @@ CHyprWindowDecorator::~CHyprWindowDecorator()
 // The one place that decides how much space this decoration reserves. Layout, drawing
 // and hit-testing must all agree, otherwise the reserved area and the drawn frame
 // disagree and clicks land in the wrong place.
+const SFrame &CHyprWindowDecorator::frame() const
+{
+    return m_pFrame ? *m_pFrame : gPlugin->frame;
+}
+
 SBoxExtents CHyprWindowDecorator::currentExtents() const
 {
     if (!gPlugin->enabled || m_hidden)
@@ -135,10 +141,10 @@ SBoxExtents CHyprWindowDecorator::currentExtents() const
     // Reserved space = frame art thickness + the user's inset. The nine-patch is
     // stretched over this same box (see assignedBoxGlobal), so the extra space is
     // filled with frame art, never left as a hole.
-    return {{(double)(gPlugin->frame.decoration_offset_left + gPlugin->frame.inset_left),
-             (double)(gPlugin->frame.decoration_offset_top + gPlugin->frame.inset_top)},
-            {(double)(gPlugin->frame.decoration_offset_right + gPlugin->frame.inset_right),
-             (double)(gPlugin->frame.decoration_offset_bottom + gPlugin->frame.inset_bottom)}};
+    return {{(double)(frame().decoration_offset_left + frame().inset_left),
+             (double)(frame().decoration_offset_top + frame().inset_top)},
+            {(double)(frame().decoration_offset_right + frame().inset_right),
+             (double)(frame().decoration_offset_bottom + frame().inset_bottom)}};
 }
 
 SDecorationPositioningInfo CHyprWindowDecorator::getPositioningInfo()
@@ -1029,7 +1035,7 @@ CBox CHyprWindowDecorator::titleBoxPlaced(const CBox &band, const float scale) c
 // (layout, drawing, hit-testing, status) consumes this, so no unit can be mixed twice.
 Layout::SFrameMetrics CHyprWindowDecorator::frameMetrics()
 {
-    const auto &NPI = m_bWindowHasFocus ? gPlugin->frame.activeNinepatch : gPlugin->frame.inactiveNinepatch;
+    const auto &NPI = m_bWindowHasFocus ? frame().activeNinepatch : frame().inactiveNinepatch;
     const auto  BOX = assignedBoxGlobal();
 
     // `defaults.scale` is the single "make the whole frame bigger" knob: art, spacings,
@@ -1042,10 +1048,10 @@ Layout::SFrameMetrics CHyprWindowDecorator::frameMetrics()
     const double S = gPlugin->cfg.defaultScale > 0 ? (double)gPlugin->cfg.defaultScale : 1.0;
 
     Layout::SFrameMetrics m;
-    m.left          = gPlugin->frame.decoration_offset_left;
-    m.top           = gPlugin->frame.decoration_offset_top;
-    m.right         = gPlugin->frame.decoration_offset_right;
-    m.bottom        = gPlugin->frame.decoration_offset_bottom;
+    m.left          = frame().decoration_offset_left;
+    m.top           = frame().decoration_offset_top;
+    m.right         = frame().decoration_offset_right;
+    m.bottom        = frame().decoration_offset_bottom;
     m.contentLeft   = NPI.padding[0];
     m.contentTop    = NPI.padding[1];
     m.contentRight  = NPI.padding[2];
@@ -1057,10 +1063,10 @@ Layout::SFrameMetrics CHyprWindowDecorator::frameMetrics()
     m.boxH          = BOX.h;
     // inset_* are already scaled at resolve time (they feed the reserved extents), so they
     // are used as-is here.
-    m.insetLeft     = gPlugin->frame.inset_left;
-    m.insetTop      = gPlugin->frame.inset_top;
-    m.insetRight    = gPlugin->frame.inset_right;
-    m.insetBottom   = gPlugin->frame.inset_bottom;
+    m.insetLeft     = frame().inset_left;
+    m.insetTop      = frame().inset_top;
+    m.insetRight    = frame().inset_right;
+    m.insetBottom   = frame().inset_bottom;
     m.scale         = S;
     return m;
 }
@@ -1732,8 +1738,8 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
                                              DECOBOX.x, DECOBOX.y, DECOBOX.w, DECOBOX.h,
                                              titleBarBox.x, titleBarBox.y, titleBarBox.w, titleBarBox.h,
                                              pMonitor->m_scale,
-                                             (m_bWindowHasFocus ? gPlugin->frame.activeSurface : gPlugin->frame.inactiveSurface) ? "yes" : "NO",
-                                             (m_bWindowHasFocus ? gPlugin->frame.activeNinepatch : gPlugin->frame.inactiveNinepatch).defined ? "yes" : "NO"));
+                                             (m_bWindowHasFocus ? frame().activeSurface : frame().inactiveSurface) ? "yes" : "NO",
+                                             (m_bWindowHasFocus ? frame().activeNinepatch : frame().inactiveNinepatch).defined ? "yes" : "NO"));
     }
 
     Render::GL::g_pHyprOpenGL->scissor(ctx, titleBarBox);
@@ -1772,9 +1778,9 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
         glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
     }
 
-    const auto &NPI = m_bWindowHasFocus ? gPlugin->frame.activeNinepatch : gPlugin->frame.inactiveNinepatch;
+    const auto &NPI = m_bWindowHasFocus ? frame().activeNinepatch : frame().inactiveNinepatch;
     float border[4] = {NPI.border[0], NPI.border[1], NPI.border[2], NPI.border[3]};
-    cairo_surface_t *sourceSurface = m_bWindowHasFocus ? gPlugin->frame.activeSurface : gPlugin->frame.inactiveSurface;
+    cairo_surface_t *sourceSurface = m_bWindowHasFocus ? frame().activeSurface : frame().inactiveSurface;
 
     if (sourceSurface)
     {
@@ -1807,7 +1813,7 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
             // The grid scale is monitor scale times the art scale, so border.scale
             // enlarges the pixel art without compounding with the monitor scale.
             const auto GRID = NinePatch::layout(gridInfo, (double)sw, (double)sh, (double)titleBarBox.width, (double)titleBarBox.height,
-                                                pMonitor->m_scale * (double)gPlugin->frame.artScale);
+                                                pMonitor->m_scale * (double)frame().artScale);
 
             if (GRID.degraded)
                 Log::logger->log(Log::WARN, std::format("[HYPRDECOR] frame too large for its box ({}x{} at scale {}); scaling to fit", sw, sh, pMonitor->m_scale));
@@ -2147,12 +2153,12 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
     // a render pass. recalculateMonitor() mutates window geometry while the renderer is
     // iterating windows, and the second window to open would drop the first. Defer it
     // to the main loop instead.
-    if (m_iLastHeight != gPlugin->frame.decoration_offset_top)
+    if (m_iLastHeight != frame().decoration_offset_top)
     {
         // Record only. Forcing recalculateMonitor() here threw the newly laid-out
         // window back to an output-sized box; a fullscreen cycle is the only thing that
         // recomputes it correctly, which is why the bug "fixed itself" that way.
-        m_iLastHeight = gPlugin->frame.decoration_offset_top;
+        m_iLastHeight = frame().decoration_offset_top;
     }
 }
 
@@ -2214,11 +2220,11 @@ void CHyprWindowDecorator::enforceMinSize()
     if (Fullscreen::controller()->isFullscreen(PWINDOW))
         return;
 
-    const auto &NPI = m_bWindowHasFocus ? gPlugin->frame.activeNinepatch : gPlugin->frame.inactiveNinepatch;
+    const auto &NPI = m_bWindowHasFocus ? frame().activeNinepatch : frame().inactiveNinepatch;
     if (!NPI.defined)
         return;
 
-    const double SC = (double)gPlugin->frame.artScale;
+    const double SC = (double)frame().artScale;
 
     // The nine-patch needs its two corners plus at least one pixel of stretch band.
     double minW = (NPI.border[0] + NPI.border[2]) * SC + 1.0;

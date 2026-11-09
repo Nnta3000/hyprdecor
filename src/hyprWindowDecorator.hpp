@@ -26,6 +26,11 @@ public:
   // Reserved extents: the single source of truth shared by layout, drawing and input.
   SBoxExtents currentExtents() const;
 
+  // The frame this decorator renders. Today it points at CPlugin::frame; themes will
+  // pin individual decorators to other resolved frames without touching the drawing
+  // code again.
+  const SFrame &frame() const;
+
   virtual void onPositioningReply(const SDecorationPositioningReply &reply);
 
   virtual void draw(Render::CRenderContext &ctx, PHLMONITOR, float const &a, const Render::SWindowRenderPresentation &presentation);
@@ -60,6 +65,7 @@ private:
   SBoxExtents m_seExtents;
 
   PHLWINDOWREF m_pWindow;
+  const SFrame *m_pFrame = nullptr;
 
   CBox m_bAssignedBox;
 
