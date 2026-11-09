@@ -57,6 +57,34 @@ struct SHyprButton
     std::string pathPressed = "";
 };
 
+// Resolved frame assets and metrics. Today the plugin owns one default frame; every
+// consumer reads it through CPlugin::frame so a decorator can later be pinned to a
+// different theme without touching the drawing code again.
+struct SFrame
+{
+    std::string    ninepatch_texture;
+    std::string    ninepatch_active;
+    std::string    ninepatch_inactive;
+    SNinePatchInfo activeNinepatch;
+    SNinePatchInfo inactiveNinepatch;
+    cairo_surface_t *activeSurface = nullptr;
+    cairo_surface_t *inactiveSurface = nullptr;
+
+    // Extra space added to the art thickness, per side, pushing the window inward.
+    int inset_left   = 0;
+    int inset_top    = 0;
+    int inset_right  = 0;
+    int inset_bottom = 0;
+
+    int decoration_offset_left   = 0;
+    int decoration_offset_top    = 0;
+    int decoration_offset_right  = 0;
+    int decoration_offset_bottom = 0;
+
+    // Effective art scale, already clamped to at least 1.
+    int artScale = 1;
+};
+
 class CHyprWindowDecorator;
 
 class CPlugin
@@ -95,7 +123,6 @@ public:
     SConfig cfg;
 
     CHyprColor bar_color = CHyprColor(0.2F, 0.2F, 0.2F, 0.53F);
-    int decoration_offset_top = 0;
     CHyprColor col_text = CHyprColor(1, 1, 1, 1);
     int decoration_title_size = 10;
     bool decoration_title_enabled = true;
@@ -114,7 +141,9 @@ public:
     std::string on_double_click;
     std::string retro_shader;
 
-    std::string ninepatch_texture;
+    // The default frame. Themes will add more SFrame entries; consumers already read
+    // their frame through this object rather than through scattered plugin fields.
+    SFrame frame;
 
     // Values coming from hl.plugin.hyprdecor.setup(). They take precedence over the
     // flat plugin:hyprdecor:* config values, because setup() is the structured API.
@@ -134,20 +163,6 @@ public:
     int  lastBarW = 0;
     int  lastBarH = 0;
     bool lastDrawn = false;
-    std::string ninepatch_active;
-    std::string ninepatch_inactive;
-    SNinePatchInfo activeNinepatch;
-    SNinePatchInfo inactiveNinepatch;
-    // Extra space added to the art thickness, per side, pushing the window inward.
-    // Layout reserves art + inset; the nine-patch is stretched over that same box, so
-    // there is no hole. A visual gap belongs in the texture.
-    int inset_left = 0;
-    int inset_top = 0;
-    int inset_right = 0;
-    int inset_bottom = 0;
-    int decoration_offset_left = 0;
-    int decoration_offset_right = 0;
-    int decoration_offset_bottom = 0;
     bool ninepatch_linear_filtering = true;
     bool ninepatch_repeat = false;
     bool decoration_appicon_enabled = true;
@@ -156,10 +171,6 @@ public:
     int bar_outline_width = 1;
     bool bar_outline_always = true;
     Vector2D decoration_appicon_offset;
-
-    // Parsed results
-    cairo_surface_t *activeSurface = nullptr;
-    cairo_surface_t *inactiveSurface = nullptr;
 
     HANDLE m_pHandle = nullptr;
     std::vector<SHyprButton> m_vButtons;
