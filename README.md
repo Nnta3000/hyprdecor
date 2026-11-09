@@ -104,7 +104,8 @@ image, so you will not see a frame.
 ## Quick start
 
 The smallest working config is a frame. The repo ships sample sets in `assets/`
-(`xp`, `2000`, `orange`).
+(`xp`, `2000`). The `orange` set used by the development config is local-only and is
+not redistributed.
 
 ```lua
 hl.plugin.load("/absolute/path/to/build/hyprdecor.so")
@@ -346,7 +347,7 @@ elements. Crash reports land in `~/.cache/hyprland/`.
 | `src/util.hpp` | Texture upload and app-icon lookup. |
 | `src/compat.hpp` | Small shims for Hyprland APIs that changed in 0.56. |
 | `tests/` | Unit tests for the pure-logic headers. |
-| `assets/` | Sample frame sets (`xp`, `2000`, `orange`). |
+| `assets/` | Sample frame sets (`xp`, `2000`). The `orange` set is local-only. |
 
 ---
 
@@ -354,7 +355,8 @@ elements. Crash reports land in `~/.cache/hyprland/`.
 
 Originally by CapsAdmin. Decorations inspired by the Android nine-patch format.
 
-The orange frame art in `assets/orange/` is based on the visual style created by
+The `orange` frame set is based on the visual style created by
 **[@P1PEGraphics](https://www.youtube.com/@P1PEGraphics)** for
-[this video](https://www.youtube.com/watch?v=GPr_cM7Nyzk). See
-[`assets/orange/CREDITS.md`](assets/orange/CREDITS.md).
+[this video](https://www.youtube.com/watch?v=GPr_cM7Nyzk). It is used locally but is
+**not redistributed** with this repository; the images are excluded by `.gitignore`.
+See [`assets/orange/CREDITS.md`](assets/orange/CREDITS.md).
