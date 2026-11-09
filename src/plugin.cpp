@@ -333,10 +333,10 @@ CPlugin::CPlugin(HANDLE handle)
 
 CPlugin::~CPlugin()
 {
-    if (activeSurface)
-        cairo_surface_destroy(activeSurface);
-    if (inactiveSurface && inactiveSurface != activeSurface)
-        cairo_surface_destroy(inactiveSurface);
+    if (frame.activeSurface)
+        cairo_surface_destroy(frame.activeSurface);
+    if (frame.inactiveSurface && frame.inactiveSurface != frame.activeSurface)
+        cairo_surface_destroy(frame.inactiveSurface);
 }
 
 // Read a config value's data pointer, or nullptr if the option is not
@@ -374,18 +374,18 @@ std::string CPlugin::statusString() const
     out += std::format("  version:           {} ({} built {})\n", HYPRDECOR_VERSION, HYPRDECOR_GIT_COMMIT, HYPRDECOR_BUILD_DATE);
     out += std::format("  loaded:            yes\n");
     out += std::format("  setup() applied:   {}\n", setup_applied ? "yes" : "no");
-    out += std::format("  texture (base):    {}\n", ninepatch_texture.empty() ? "(none)" : ninepatch_texture);
-    out += std::format("  texture (active):  {}\n", ninepatch_active.empty() ? "(none)" : ninepatch_active);
-    out += std::format("  texture (inactive): {}\n", ninepatch_inactive.empty() ? "(none)" : ninepatch_inactive);
-    out += std::format("  surface loaded:    {}\n", activeSurface ? "yes" : "NO");
-    out += std::format("  ninepatch parsed:  {}\n", activeNinepatch.defined ? "yes" : "NO");
+    out += std::format("  texture (base):    {}\n", frame.ninepatch_texture.empty() ? "(none)" : frame.ninepatch_texture);
+    out += std::format("  texture (active):  {}\n", frame.ninepatch_active.empty() ? "(none)" : frame.ninepatch_active);
+    out += std::format("  texture (inactive): {}\n", frame.ninepatch_inactive.empty() ? "(none)" : frame.ninepatch_inactive);
+    out += std::format("  surface loaded:    {}\n", frame.activeSurface ? "yes" : "NO");
+    out += std::format("  ninepatch parsed:  {}\n", frame.activeNinepatch.defined ? "yes" : "NO");
     out += std::format("  border L/T/R/B:    {} {} {} {}\n",
-                       activeNinepatch.border[0], activeNinepatch.border[1], activeNinepatch.border[2], activeNinepatch.border[3]);
+                       frame.activeNinepatch.border[0], frame.activeNinepatch.border[1], frame.activeNinepatch.border[2], frame.activeNinepatch.border[3]);
     out += std::format("  padding L/T/R/B:   {} {} {} {}\n",
-                       activeNinepatch.padding[0], activeNinepatch.padding[1], activeNinepatch.padding[2], activeNinepatch.padding[3]);
-    out += std::format("  render fallback:   {}\n", activeSurface ? "texture" : "solid bar_color (NO TEXTURE)");
+                       frame.activeNinepatch.padding[0], frame.activeNinepatch.padding[1], frame.activeNinepatch.padding[2], frame.activeNinepatch.padding[3]);
+    out += std::format("  render fallback:   {}\n", frame.activeSurface ? "texture" : "solid bar_color (NO TEXTURE)");
     out += std::format("  offsets L/T/R/B:   {} {} {} {}\n",
-                       decoration_offset_left, decoration_offset_top, decoration_offset_right, decoration_offset_bottom);
+                       frame.decoration_offset_left, frame.decoration_offset_top, frame.decoration_offset_right, frame.decoration_offset_bottom);
     out += std::format("  enabled:           {}\n", enabled ? "yes" : "no");
     out += std::format("  decorated windows: {}\n", liveDecorators().size());
     out += std::format("  canvas (last):     {}x{}\n", lastBarW, lastBarH);
@@ -473,21 +473,18 @@ void CPlugin::update()
         Log::logger->log(Log::WARN, std::format("[HYPRDECOR] \"{}\" has no nine-patch metadata (1px marker border); stretched as a whole image", NINEPATCHACTIVE));
     }
 
-    if (activeSurface)
-        cairo_surface_destroy(activeSurface);
-    if (inactiveSurface && inactiveSurface != activeSurface)
-        cairo_surface_destroy(inactiveSurface);
+    if (frame.activeSurface)
+        cairo_surface_destroy(frame.activeSurface);
+    if (frame.inactiveSurface && frame.inactiveSurface != frame.activeSurface)
+        cairo_surface_destroy(frame.inactiveSurface);
 
-    activeSurface = nullptr;
-    inactiveSurface = nullptr;
-
-    ninepatch_active = NINEPATCHACTIVE;
-    ninepatch_inactive = NINEPATCHINACTIVE;
-    ninepatch_texture = C.textureBase;
-    activeSurface = newActiveSurface;
-    inactiveSurface = newInactiveSurface ? newInactiveSurface : newActiveSurface;
-    activeNinepatch = newActiveNPI;
-    inactiveNinepatch = newInactiveSurface ? newInactiveNPI : newActiveNPI;
+    frame.activeSurface   = newActiveSurface;
+    frame.inactiveSurface = newInactiveSurface ? newInactiveSurface : newActiveSurface;
+    frame.activeNinepatch   = newActiveNPI;
+    frame.inactiveNinepatch = newInactiveSurface ? newInactiveNPI : newActiveNPI;
+    frame.ninepatch_active   = NINEPATCHACTIVE;
+    frame.ninepatch_inactive = NINEPATCHINACTIVE;
+    frame.ninepatch_texture  = C.textureBase;
 
     // Resolved per-side reserved space, using the documented precedence:
     // explicit value -> nine-patch padding marker -> nine-patch border size.
@@ -510,10 +507,11 @@ void CPlugin::update()
     // window (or leaves a gap).
     const int SC = std::max(1, C.artScale);
 
-    decoration_offset_left   = SIDE(C.thickness.left, RESOLVE.padding[0], RESOLVE.border[0]) * SC;
-    decoration_offset_top    = SIDE(C.thickness.top, RESOLVE.padding[1], RESOLVE.border[1]) * SC;
-    decoration_offset_right  = SIDE(C.thickness.right, RESOLVE.padding[2], RESOLVE.border[2]) * SC;
-    decoration_offset_bottom = SIDE(C.thickness.bottom, RESOLVE.padding[3], RESOLVE.border[3]) * SC;
+    frame.artScale = SC;
+    frame.decoration_offset_left   = SIDE(C.thickness.left, RESOLVE.padding[0], RESOLVE.border[0]) * SC;
+    frame.decoration_offset_top    = SIDE(C.thickness.top, RESOLVE.padding[1], RESOLVE.border[1]) * SC;
+    frame.decoration_offset_right  = SIDE(C.thickness.right, RESOLVE.padding[2], RESOLVE.border[2]) * SC;
+    frame.decoration_offset_bottom = SIDE(C.thickness.bottom, RESOLVE.padding[3], RESOLVE.border[3]) * SC;
 
     // inset is additional space on top of the art. It is NOT drawn as a gap: the
     // reserved box and the box the nine-patch stretches over are the same rectangle.
@@ -522,19 +520,19 @@ void CPlugin::update()
     // (see currentExtents()), so both must use the SAME number or the frame overlaps the
     // window by exactly the amount one side forgot to scale.
     const auto INSET = [&](double v) { return v >= 0 ? (int)std::lround(v * SC) : 0; };
-    inset_left   = INSET(C.inset.left);
-    inset_top    = INSET(C.inset.top);
-    inset_right  = INSET(C.inset.right);
-    inset_bottom = INSET(C.inset.bottom);
+    frame.inset_left   = INSET(C.inset.left);
+    frame.inset_top    = INSET(C.inset.top);
+    frame.inset_right  = INSET(C.inset.right);
+    frame.inset_bottom = INSET(C.inset.bottom);
 
     Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] resolved extents L{} T{} R{} B{} at border.scale={} (markers: padding {} {} {} {}, border {} {} {} {})",
-                                             decoration_offset_left, decoration_offset_top, decoration_offset_right, decoration_offset_bottom, SC,
+                                             frame.decoration_offset_left, frame.decoration_offset_top, frame.decoration_offset_right, frame.decoration_offset_bottom, SC,
                                              (int)RESOLVE.padding[0], (int)RESOLVE.padding[1], (int)RESOLVE.padding[2], (int)RESOLVE.padding[3],
                                              (int)RESOLVE.border[0], (int)RESOLVE.border[1], (int)RESOLVE.border[2], (int)RESOLVE.border[3]));
 
-    if (inset_left || inset_top || inset_right || inset_bottom)
+    if (frame.inset_left || frame.inset_top || frame.inset_right || frame.inset_bottom)
         Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] inset L{} T{} R{} B{} (added to the art, reserved box grows; no gap is drawn)",
-                                                 inset_left, inset_top, inset_right, inset_bottom));
+                                                 frame.inset_left, frame.inset_top, frame.inset_right, frame.inset_bottom));
 
     // Damage and update windows after all bars are invalidated
     for (auto bar : liveDecorators())
