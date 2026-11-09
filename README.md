@@ -91,58 +91,13 @@ hl.plugin.hyprdecor.setup({
 })
 ```
 
-A fuller example:
-
-```lua
-hl.plugin.hyprdecor.setup({
-  defaults = {
-    -- One number for the whole frame: scales the frame art AND every element that does
-    -- not set its own `scale`. Per-element `scale` wins over this.
-    scale = 2,
-
-    border = {
-      texture          = "/absolute/path/to/frame",
-      linear_filtering = false,   -- false = crisp pixels (nearest-neighbour)
-      scale            = 2,       -- scales the frame art (pixel art at 2x)
-    },
-
-    title = {
-      enabled = true,
-      size    = 13,
-      font    = "Sans",
-      font_unfocused = "OrangeFont", -- optional: title font when the window is unfocused
-      mode    = "fill",           -- the title fills the space between the elements
-      align   = "left",           -- left | centre | right, inside its box
-      text_offset_x = 9,
-      text_offset_y = 0,
-      ellipsize = true,           -- long titles become "..."
-      background = { image = "/absolute/path/to/title.png" },
-    },
-
-    elements = {
-      { image = "/absolute/path/to/eye.png",
-        anchor = "top-left", offset_x = 19, offset_y = 9,
-        scale = 2, linear_filtering = false, interactive = true },
-      { image = "/absolute/path/to/close.png",
-        anchor = "top-right", offset_x = -8, offset_y = 8,
-        scale = 2, interactive = true },
-    },
-  },
-})
-```
-
 **Use absolute paths.** Relative paths resolve against Hyprland's working directory, not
 your config directory.
 
 `setup()` validates everything when the config loads. A mistake (a missing file, a wrong
 type) raises a Lua error that names the offending field, and nothing is half-applied.
 
----
-
-## Configuration
-
-See [docs/configuration.md](docs/configuration.md) for the full reference, including
-`themes`, `rules` and window-rule effects.
+Full reference: [docs/configuration.md](docs/configuration.md).
 
 ---
 
