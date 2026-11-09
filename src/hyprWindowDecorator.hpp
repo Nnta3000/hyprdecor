@@ -26,10 +26,11 @@ public:
   // Reserved extents: the single source of truth shared by layout, drawing and input.
   SBoxExtents currentExtents() const;
 
-  // The frame this decorator renders. Today it points at CPlugin::frame; themes will
-  // pin individual decorators to other resolved frames without touching the drawing
-  // code again.
+  // The frame this decorator renders. Empty theme name = the default frame.
   const SFrame &frame() const;
+
+  // Resolves the window's theme from the rule effect or the plugin-side class rules.
+  std::string ruleTheme() const;
 
   virtual void onPositioningReply(const SDecorationPositioningReply &reply);
 
@@ -65,7 +66,10 @@ private:
   SBoxExtents m_seExtents;
 
   PHLWINDOWREF m_pWindow;
-  const SFrame *m_pFrame = nullptr;
+
+  // Empty = default frame. Otherwise resolved through CPlugin::frameFor(); storing the
+  // name rather than a pointer keeps the decorator valid across a config reload.
+  std::string m_themeName;
 
   CBox m_bAssignedBox;
 

@@ -78,7 +78,7 @@ static Layout::eRectCorner cornerForEdge(const char *EDGE)
 CHyprWindowDecorator::CHyprWindowDecorator(PHLWINDOW pWindow) : IHyprWindowDecoration(pWindow)
 {
     m_pWindow = pWindow;
-    m_pFrame  = &gPlugin->frame;
+    m_themeName = ruleTheme();
 
     // A window can be opened before it is attached to a monitor: Electron and
     // Thunderbird both create transient/helper windows while starting. Dereferencing a
@@ -130,7 +130,7 @@ CHyprWindowDecorator::~CHyprWindowDecorator()
 // disagree and clicks land in the wrong place.
 const SFrame &CHyprWindowDecorator::frame() const
 {
-    return m_pFrame ? *m_pFrame : gPlugin->frame;
+    return gPlugin->frameFor(m_themeName);
 }
 
 SBoxExtents CHyprWindowDecorator::currentExtents() const
@@ -1293,6 +1293,7 @@ std::string CHyprWindowDecorator::layoutJson() const
     out += std::format(" \"reserved\": {{ \"left\": {}, \"top\": {}, \"right\": {}, \"bottom\": {} }},",
                        FMT(M.left), FMT(M.top), FMT(M.right), FMT(M.bottom));
     out += std::format(" \"frame\": {{ \"state\": \"{}\" }},", m_bWindowHasFocus ? "active" : "inactive");
+    out += std::format(" \"theme\": \"{}\",", ESC(m_themeName));
 
     // Same emitter as the unit tests, so what status prints is what the tests assert.
     out += " \"items\": " + Layout::itemsJson(RESOLVED.items, BOX.x, BOX.y);
@@ -1821,7 +1822,7 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
             // Resampling happens HERE, in Cairo, because the canvas is composited at
             // device scale before it ever reaches OpenGL. The GL texture filter cannot
             // undo it, so this is where linear_filtering must be applied.
-            const auto RESAMPLE = gPlugin->cfg.linearFiltering ? NinePatch::eFilter::Bilinear : NinePatch::eFilter::Nearest;
+            const auto RESAMPLE = frame().linearFiltering ? NinePatch::eFilter::Bilinear : NinePatch::eFilter::Nearest;
 
             const double *sx = GRID.sx;
             const double *sy = GRID.sy;
@@ -1838,7 +1839,7 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
                     cairo_save(CAIRO);
 
                     bool isMiddlePatch = (i == 1 || j == 1);
-                    if (gPlugin->ninepatch_repeat && isMiddlePatch)
+                    if (frame().repeat && isMiddlePatch)
                     {
                         drawRepeatedSurface(CAIRO, sourceSurface, sx[i], sy[j], sx[i + 1] - sx[i], sy[j + 1] - sy[j], dx[i], dy[j], dx[i + 1] - dx[i], dy[j + 1] - dy[j], RESAMPLE);
                     }
@@ -1853,7 +1854,7 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
 
             cairo_surface_flush(CAIROSURFACE);
 
-            uploadCairoSurface(m_pBarFinalTex, CAIROSURFACE, gPlugin->ninepatch_linear_filtering);
+            uploadCairoSurface(m_pBarFinalTex, CAIROSURFACE, frame().linearFiltering);
 
             cairo_destroy(CAIRO);
             cairo_surface_destroy(CAIROSURFACE);
@@ -2351,6 +2352,28 @@ PHLWINDOW CHyprWindowDecorator::getOwner()
     return m_pWindow.lock();
 }
 
+std::string CHyprWindowDecorator::ruleTheme() const
+{
+    const auto PWINDOW = m_pWindow.lock();
+    if (!PWINDOW || !PWINDOW->m_ruleApplicator)
+        return "";
+
+    const auto &PROPS = PWINDOW->m_ruleApplicator->m_otherProps.props;
+    if (PROPS.contains(gPlugin->m_themeRuleIdx))
+    {
+        const std::string THEME = PROPS.at(gPlugin->m_themeRuleIdx)->effect;
+        if (!THEME.empty())
+            return THEME;
+    }
+
+    const auto APPID = PWINDOW->metadata().initialAppID();
+    for (const auto &RULE : gPlugin->cfg.rules)
+        if (RULE.className == APPID)
+            return RULE.theme;
+
+    return "";
+}
+
 void CHyprWindowDecorator::updateRules()
 {
     // window.updateRules can arrive after the window has gone away; there is nothing
@@ -2377,6 +2400,19 @@ void CHyprWindowDecorator::updateRules()
         g_pDecorationPositioner->repositionDeco(this);
     if (prevForcedTitleColor != m_bForcedTitleColor)
         m_bTitleColorChanged = true;
+
+    // Per-window frame selection. A registered rule effect wins; the plugin-side
+    // app-id list is the fallback until the custom-effect Lua syntax is verified.
+    const std::string nextTheme = ruleTheme();
+
+    if (nextTheme != m_themeName)
+    {
+        m_themeName = nextTheme;
+        // The reserved extents and the composed frame both change, so rebuild the
+        // texture and let the positioner ask for the new extents.
+        invalidateTextures();
+        g_pDecorationPositioner->repositionDeco(this);
+    }
 }
 
 void CHyprWindowDecorator::invalidateTextures()

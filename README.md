@@ -232,17 +232,49 @@ adding states is optional.
 | `_hovered` | the pointer is over the element (`interactive = true`) |
 | `_pressed` | the pointer is pressed on it (`interactive = true`) |
 
+### `themes` and `rules`: per-window frame textures
+
+A theme is a partial frame override. It inherits every field it does not set from
+`defaults.border`:
+
+```lua
+hl.plugin.hyprdecor.setup({
+  defaults = { --[[ ... ]] },
+  themes = {
+    terminal = {
+      border = {
+        texture = "/absolute/path/to/frame_inset",
+        linear_filtering = false,
+        -- Optional: scale, thickness, inset, repeat.
+      },
+    },
+  },
+  rules = {
+    { class = "kitty", theme = "terminal" },
+    { class = "foot",  theme = "terminal" },
+  },
+})
+```
+
+`class` matches the window's app id (X11 class / Wayland app_id). Rules are checked
+first-match-wins; a window with no matching rule uses the default frame.
+
+A `hyprdecor:theme` window-rule effect is also registered and takes precedence over the
+`rules` list when present. The Lua syntax for custom-effect rules is still unverified on
+this build, so the plugin-side `rules` list is the safe path.
+
 ---
 
 ## Window rules
 
-Three window-rule effects are registered:
+Four window-rule effects are registered:
 
 | Effect | Description |
 |---|---|
 | `hyprdecor:no_bar` | Hide the decoration for matching windows. |
 | `hyprdecor:bar_color` | Override the solid bar colour (used when no frame texture resolves). |
 | `hyprdecor:title_color` | Override the title text colour. |
+| `hyprdecor:theme` | Select a named `themes` frame by effect value. |
 
 The syntax for writing these as Lua window rules has not been verified yet (it is on the
 [roadmap](ROADMAP.md)). An invalid rule aborts the whole config, so try it in a throwaway

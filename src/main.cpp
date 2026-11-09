@@ -103,6 +103,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
     gPlugin->m_nobarRuleIdx = Desktop::Rule::windowEffects()->registerEffect("hyprdecor:no_bar");
     gPlugin->m_barColorRuleIdx = Desktop::Rule::windowEffects()->registerEffect("hyprdecor:bar_color");
     gPlugin->m_titleColorRuleIdx = Desktop::Rule::windowEffects()->registerEffect("hyprdecor:title_color");
+    gPlugin->m_themeRuleIdx = Desktop::Rule::windowEffects()->registerEffect("hyprdecor:theme");
 
     // Structured Lua API: hl.plugin.hyprdecor.setup({...}).
     // Loading the .so does not create this namespace; only addLuaFunction does.
@@ -189,6 +190,7 @@ APICALL EXPORT void PLUGIN_EXIT()
 
         Desktop::Rule::windowEffects()->unregisterEffect(gPlugin->m_barColorRuleIdx);
         Desktop::Rule::windowEffects()->unregisterEffect(gPlugin->m_titleColorRuleIdx);
+        Desktop::Rule::windowEffects()->unregisterEffect(gPlugin->m_themeRuleIdx);
         Desktop::Rule::windowEffects()->unregisterEffect(gPlugin->m_nobarRuleIdx);
     }
 
