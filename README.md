@@ -353,3 +353,8 @@ elements. Crash reports land in `~/.cache/hyprland/`.
 ## Credits
 
 Originally by CapsAdmin. Decorations inspired by the Android nine-patch format.
+
+The orange frame art in `assets/orange/` is based on the visual style created by
+**[@P1PEGraphics](https://www.youtube.com/@P1PEGraphics)** for
+[this video](https://www.youtube.com/watch?v=GPr_cM7Nyzk). See
+[`assets/orange/CREDITS.md`](assets/orange/CREDITS.md).
