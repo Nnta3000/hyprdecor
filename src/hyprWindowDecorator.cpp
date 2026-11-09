@@ -2187,6 +2187,12 @@ void CHyprWindowDecorator::requestMinSizeClamp()
     if (m_bMinSizeClampPending || !g_pEventLoopManager)
         return;
 
+    // Tiled windows are laid out by Hyprland; only floating windows can be dragged
+    // below the frame minimum.
+    const auto PWINDOW = m_pWindow.lock();
+    if (!PWINDOW || !PWINDOW->isFloating())
+        return;
+
     m_bMinSizeClampPending = true;
 
     g_pEventLoopManager->doLater([this]() {
@@ -2219,6 +2225,13 @@ void CHyprWindowDecorator::enforceMinSize()
         return;
 
     if (Fullscreen::controller()->isFullscreen(PWINDOW))
+        return;
+
+    // Tiled windows are sized by the layout. clampWindowSize() moves and resizes the
+    // window directly, which fights the layout and leaves tiles stuck at the frame
+    // minimum. Tiled windows may be smaller than the frame; the nine-patch degrades and
+    // clips there. Only floating windows need a floor the user cannot drag below.
+    if (!PWINDOW->isFloating())
         return;
 
     const auto &NPI = m_bWindowHasFocus ? frame().activeNinepatch : frame().inactiveNinepatch;

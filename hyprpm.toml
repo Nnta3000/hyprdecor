@@ -1,7 +1,7 @@
 [hyprdecor]
 description = "adds support for ninepatch window decorations inspired by android"
 authors = ["CapsAdmin"]
-version = "0.3.0"
+version = "0.3.1"
 output = "build/hyprdecor.so"
 build = [
     "make all"
