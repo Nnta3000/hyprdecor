@@ -117,3 +117,22 @@ decoration only: it never hovers, never takes a press, and a click on it drags t
 like the rest of the band.
 
 ---
+
+## Inspecting and debugging
+
+```bash
+hyprctl hyprdecor status     # the plugin's current state, as text
+```
+
+If nothing appears, work through this list:
+
+1. `hyprctl plugin list`: is the plugin loaded?
+2. Did `setup()` run, and did it fail? Check Hyprland's config error output
+   (`hyprctl configerrors`) and the log; the message names the field.
+3. Are all paths absolute, and can the compositor's user read them?
+4. Does the frame png have markers? Without them the whole image stretches as one piece.
+   See [ninepatch.md](ninepatch.md).
+5. Enable `debug:enable_stdout_logs` and look for lines prefixed `[HYPRDECOR]`.
+   When diagnosing, save the whole log to a file and search that, rather than filtering live.
+
+---
