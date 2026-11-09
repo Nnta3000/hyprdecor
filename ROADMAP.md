@@ -28,6 +28,10 @@ Present in the code at the last upload:
 - [x] Nine-patch frame, title (fill and box modes), image elements with three top anchors,
       state textures, `hyprctl hyprdecor status` (text output).
 - [x] Direct GL texture upload helper (fixed the black-texture bug).
+- [x] Frame-only per-window themes: a `themes` table of partial `SFrame` overrides,
+      `rules` by app id, and a registered `hyprdecor:theme` effect. Each decorator stores
+      a theme name and resolves through `CPlugin::frameFor()`.
+- [ ] Full per-window themes: title, elements and item layouts are still global.
 - [ ] Legacy button code (`_hover`, `_normal`, `_clicked` suffixes) is still in `plugin.cpp`.
       Retire it when buttons become items (C3/C4).
 
@@ -39,7 +43,7 @@ Known problems and unknowns are tracked in `AGENTS.md` section 4, not here.
 |---|---|---|---|
 | D1 | No flat `plugin:hyprdecor:*` values. Everything goes through `setup()`. | Phase 1, the `addConfigValueV2` migration | One source of truth. Flat values were never committed under the Lua manager and caused silent wrong defaults. Revisit only if live `hl.config` tweaking is wanted; that needs the check listed under "To verify". |
 | D2 | Actions are named (`close`, `maximize`, ...) plus a typed `dispatch = "name args"`. The plugin never spawns shells. | `{ type = "dispatch" }` objects and the earlier `exec` idea | Keeps shell execution out of the model, matching the old design rule 3. |
-| D3 | Per-window variation uses Hyprland window-rule effects (`hyprdecor:theme`, `hyprdecor:no_bar`, ...) plus named `themes`. | Plugin-side `rules = { match = ... }` | Reuses Hyprland's matcher instead of maintaining a second one. Fall back to plugin-side rules only if the effect syntax proves unusable. |
+| D3 | Per-window variation uses Hyprland window-rule effects (`hyprdecor:theme`, `hyprdecor:no_bar`, ...) plus named `themes`. | Plugin-side `rules = { match = ... }` | Reuses Hyprland's matcher instead of maintaining a second one. Fall back to plugin-side rules only if the effect syntax proves unusable. **Current build:** the Lua window-rule binding exposes a fixed effect list, so the plugin-side `rules` list is the supported path; `hyprdecor:theme` is registered for legacy configs/future builds. |
 | D4 | Regions and items with flow layout. | The `buttons` list with anchors, and `layout` / `button_group` (which were "not a priority") | Vertical buttons on any side and under the window are now a core goal, and flow removes the "measured from what?" problem. |
 | D5 | State suffixes: `_unfocused`, `_hovered`, `_pressed`, `_on`. | The legacy `_hover`, `_normal`, `_clicked` | One vocabulary. The old names live only in the legacy button path and go with it. |
 
@@ -64,7 +68,8 @@ Each commit ends with the user testing. The next one starts only after that.
 | C2 | Left, right and bottom regions with asymmetric extents; frame still one nine-patch | Status JSON shows correct `reserved`; windows sized correctly; corners continuous; probe log consistent. |
 | C3 | Unified items: `button`, `text`, `spacer`, flow, fill weights, gap, align; title becomes an item; legacy config desugars | Old `test.lua` unchanged in output; new column of buttons works on the left and bottom. |
 | C4 | `visible_when` / `collapse`, `_on` state, actions (close, maximize, fullscreen, pin, float, drag, resize, dispatch) | Every action works; hidden items keep their slot. |
-| C5 | Text templates, `rotate`, drag and resize grips, `hyprdecor:theme` window rule | Per-window themes work; vertical text renders. |
+| C5a | Frame-only per-window themes: `themes` + `rules` + `SFrame` resolution | **Done in 0.3.0.** Kitty can use `frame_inset`; other windows keep the default frame. |
+| C5 | Text templates, `rotate`, drag and resize grips, full themes (title/items) | Vertical text renders; per-window title/element overrides work. |
 | C6 | Polish | Docs, example configs, deprecation notice, the target config in `docs/SPEC.md` section 2 loads as written. |
 
 ### M3: later
@@ -92,7 +97,7 @@ Each commit ends with the user testing. The next one starts only after that.
   needs a table of known verbs, or must be dropped.
 - ~~Asymmetric reserved extents~~ **Resolved (C2 probe).** `reserved: left 20, top 48,
   right 10, bottom 22` was honoured, the window was correctly inset, corners continuous.
-- The Lua syntax for a custom-effect window rule such as `hyprdecor:theme`, before C5.
+- The Lua syntax for a custom-effect window rule such as `hyprdecor:theme`: the 0.57 Lua binding uses a fixed descriptor list, so the plugin-side `rules` path is used. Revisit if the binding gains dynamic custom effects.
 - Whether the plugin's internal `g_pKeybindManager->m_dispatchers["..."]` map still
   resolves those verbs on a Lua-config build, or is now derived from the Lua
   dispatchers. **Prove with one real click before wiring seven actions.**
