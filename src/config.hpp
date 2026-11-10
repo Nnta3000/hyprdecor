@@ -181,7 +181,7 @@ struct SConfig
     // that does not set its own. 0 means "not set", so an explicit per-element
     // `scale` can be distinguished from "inherit". Resolved at setup() time, not at
     // draw time, so the layout pass always sees a concrete number.
-    int defaultScale = 0;
+    int defaultScale = 1;
 
     bool   linearFiltering = true;
     bool   repeat          = false;
