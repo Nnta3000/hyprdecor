@@ -1644,8 +1644,6 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
         Render::GL::g_pHyprOpenGL->renderRect(ctx, titleBarBox, color, BARDATA);
     }
 
-    if (m_bWindowSizeChanged)
-
     // Items. ONE layout pass produces the rectangles; hit-testing and
     // `hyprctl hyprdecor status` read the very same ones.
     {
