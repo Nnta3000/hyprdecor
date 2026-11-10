@@ -22,11 +22,12 @@ Present in the code:
 - [x] `bandBox()` / `elementBox()` are gone; layout is one pure pass (`layout.hpp`).
 - [ ] Full per-window themes (title, items).
 - [ ] Release readiness: see milestone R.
+- [x] R0-R4: review patches, shader removal, legacy buttons removed, one config source, pure strict parser.
 
-### Pending test: review patches 01 to 04
+### Review patches 01 to 04 (applied)
 
-Delivered with the 2026-11-10 review, **not compiled against Hyprland** (the reviewer had no
-headers). Apply and test one at a time, in order. Each is independent of the next.
+Applied in order on 2026-11-10. The plugin builds against Hyprland 0.57, `ctest` is green and
+the nested session confirmed the runtime behaviour.
 
 | Patch | Contains | Test |
 |---|---|---|
@@ -63,16 +64,16 @@ render pixel-identically against the baseline screenshot.
 
 | # | Commit | Done when |
 |---|---|---|
-| R0 | Apply and test patches 01 to 04 above | `ctest` green, baseline screenshot identical. |
-| R1 | Remove the shader path (D6) | `grep -ri 'hyprshade\|retro\|palette\|dither' src CMakeLists.txt docs README.md` returns nothing; `tools/` deleted; CMake tools block deleted. |
-| R2 | Delete the legacy button path | Gone: `onNewButtonTextured`, `SHyprButton`, `m_vButtons`, `m_pButtonsTex`, `m_iButtonPressedIdx`, `m_iButtonHoverState`, `m_bButtonsDirty`, `indexToButton`, `renderBarButtons`, `renderBarButtonsText`, `getVisibleButtonCount`, `damageOnButtonHover`, `statePath` legacy vocabulary, `Compat::splitVars`, the `exec_cmd` dispatch, `onPreConfigReload` + its listener. The button-related reads of `bar_button_padding`, `buttonsAlignment`, `onDoubleClick` go with them. |
-| R3 | One config source | The mirrored `CPlugin` fields (`bar_color`, `col_text`, `bar_blur`, `decoration_*`, `bar_*`, `ninepatch_*`, `retro_shader`, ...) are deleted; every reader uses `cfg`. `defaultScale` defaults to 1, so the `defaultScale > 0 ? ... : 1` guards disappear. Defaults exist only in `config.hpp` (today `appicon`, `outline_width` and `outline_always` disagree between `plugin.hpp` and `SConfig`). |
-| R4 | Pure, strict Lua parser | `parseSetup(lua_State*, const SParseContext&) -> SConfig` has no `gPlugin` dependency (file-exists is injected). Typed readers (`readBool`, `readInt(min,max)`, `readEnum`, `readString`) throw on a wrong type or range (D8). Tests run against a real Lua 5.5 state, including every error path, under ASan. `(int)`/`(uint64_t)` casts of config doubles are gone. |
+| R0 | Apply and test patches 01 to 04 above | **Done.** `ctest` green, nested session confirmed. |
+| R1 | Remove the shader path (D6) | **Done.** `grep -ri 'hyprshade\|retro\|palette\|dither' src CMakeLists.txt docs README.md` returns nothing; `tools/` deleted; CMake tools block deleted. Shader tooling moved to `orange-config/dithering/shaders-tools`. |
+| R2 | Delete the legacy button path | **Done.** `onNewButtonTextured`, `SHyprButton`, `m_vButtons`, `m_pButtonsTex`, `m_iButtonPressedIdx`, `m_iButtonHoverState`, `m_bButtonsDirty`, `indexToButton`, `renderBarButtons`, `renderBarButtonsText`, `getVisibleButtonCount`, `damageOnButtonHover`, the `exec_cmd` dispatch, `onPreConfigReload`, `Compat::splitVars`, and the button-related `bar_button_padding`/`buttonsAlignment`/`onDoubleClick` config are gone. Item elements remain. |
+| R3 | One config source | **Done.** The mirrored `CPlugin` fields are deleted; every reader uses `cfg`. `defaultScale` defaults to 1 and the guards are gone. Defaults exist only in `config.hpp`. |
+| R4 | Pure, strict Lua parser | **Done.** `parseSetup(lua_State*, const SParseContext&) -> SConfig` lives in `luaParse.cpp` with injected texture resolution and no `gPlugin` dependency. Strict type readers and `intField`/`uintField` ranges throw; `lua_parse_test` runs against Lua 5.5 (also under ASan). |
 | R5 | Remove duplication | `SConfig::scale()`; `drawNinePatch()` (elements and title background); `loadNinePatchTexture()` (five copies); one frame-suffix list; `ruleEffect(idx)`; `Sides::over()` for theme resolution; `dispatchLua` takes a `sync` flag; title-background cache key includes `linearFiltering`. |
 | R6 | Layout and status | `resolveLayout()` cached per (decoration box, window-state snapshot, `cfg.applies`). `layoutJson()` and `liveDecorators()` are `const` without `const_cast`. Pixel snapping per D7, with tests. `hyprctl hyprdecor json` per D9. |
 | R7 | File organisation | Folder layout from `AGENTS.md` section 8, as a move-only commit; `hyprWindowDecorator.cpp` split into input, actions, render, rules; CMake lists sources explicitly (no `GLOB_RECURSE`). |
 | R8 | Docstring pass | Every declaration documented per `AGENTS.md` section 7; changelog-style comments ("this used to", "was declared but never assigned") deleted. |
-| R9 | Release hygiene | LICENCE settled (D11); README states a single Hyprland version and matches `AGENTS.md`; `hyprpm.toml` has `[repo]` + `commit_pins` for each supported Hyprland commit, `make all` does not build tests; version has one source; git commit/date stamped at build time, not configure time; CI builds in a container against the Hyprland headers, runs `ctest`, and fails on warnings; asset licences checked for `assets/xp` and `assets/2000`. |
+| R9 | Release hygiene | LICENCE settled (D11); README states a single Hyprland version and matches `AGENTS.md`; `hyprpm.toml` has `[repo]` + `commit_pins` for each supported Hyprland commit, `make all` does not build tests; version has one source, bumped by `scripts/release.sh` / `make release-patch\|release-minor\|release-major`, which refuses a dirty tree, checks CMake and hyprpm agree, runs `ctest`, commits and creates an annotated tag; git commit/date stamped by a build-time custom target; CI builds in a container against the Hyprland headers, runs `ctest`, and fails on warnings; asset licences checked for `assets/xp` and `assets/2000`. |
 | R10 | D12 and D13 resolved | Each either deleted or documented in README and SPEC. |
 
 ### M1: stabilise (carried over)
@@ -136,15 +137,15 @@ Silent or dangerous problems found by reading all of `src/`. "Fixed" means a pat
 | F4 | `std::filesystem::exists(path)` throws on permission errors, called from the render path | Medium | Fixed, patch 02 |
 | F5 | `renderPass`/`updateRules` dereference a window or rule applicator without a null check | Medium | Fixed, patch 02 |
 | F6 | A `static CBox` log guard shared by all windows logged every frame with two windows | Low | Fixed, patch 02 |
-| F7 | Wrong-typed config values are silently ignored (`title.size = "big"`, `border.repeat = "yes"`, `font = 12`); numbers are accepted as booleans | High | R4 (D8) |
-| F8 | Config doubles cast to `int`/`uint64_t` with no range check (`title.size = 1e9`, negative `color`) is undefined behaviour or huge allocations | Medium | R4 |
+| F7 | Wrong-typed config values are silently ignored (`title.size = "big"`, `border.repeat = "yes"`, `font = 12`); numbers are accepted as booleans | High | Fixed, R4 (D8) |
+| F8 | Config doubles cast to `int`/`uint64_t` with no range check (`title.size = 1e9`, negative `color`) is undefined behaviour or huge allocations | Medium | Fixed, R4 |
 | F9 | `Layout::snap()` is never called, and rounds to whole logical px (wrong at fractional scale) | Medium | R6 (D7) |
 | F10 | Title background texture cached by path only; `m_szLoadedTitleBg` never reset; a `linear_filtering` change is ignored | Low | R5 |
 | F11 | Defaults in `plugin.hpp` differ from `SConfig` (`appicon`, `outline_width`, `outline_always`), live until the first `update()` | Low | R3 |
 | F12 | `loadAppIcon` searches about 200 paths synchronously in the render path | Low | R10 (D12) |
 | F13 | `resolveLayout()` recomputed on every pointer event and frame | Low (CPU) | R6 |
 | F14 | `liveDecorators() const` and `layoutJson() const` mutate or cast away const | Low | R6 |
-| F15 | CMake stamps git commit and date at configure time, so the stamp goes stale after a rebuild | Low | R9 |
+| F15 | CMake stamps git commit and date at configure time, so the stamp goes stale after a rebuild | Low | Fixed: build-time generated version header (R9) |
 | F16 | `make all` (hyprpm) builds tests and tools | Low | Tools off by default in patch 04; tests R9 |
 | F17 | `status` output is not valid JSON (text followed by JSON) | Low | R6 (D9) |
 | F18 | `resolveTexturePath` logs every candidate at DEBUG and keeps hidden state in `m_szLastResolveError` | Low | R4 |
