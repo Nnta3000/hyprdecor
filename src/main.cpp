@@ -70,11 +70,6 @@ static void onWindowDestroyed([[maybe_unused]] void *self, PHLWINDOWREF ref)
                   });
 }
 
-static void onPreConfigReload()
-{
-    gPlugin->m_vButtons.clear();
-}
-
 static void onUpdateWindowRules(PHLWINDOW window)
 {
     if (auto bar = CPlugin::decoratorFor(window))
@@ -119,8 +114,6 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
                                                                                       { onUpdateWindowRules(w); }));
     gPlugin->m_vListeners.emplace_back(Event::bus()->m_events.window.destroy.listen([&](PHLWINDOWREF r)
                                                                                       { onWindowDestroyed(nullptr, r); }));
-    gPlugin->m_vListeners.emplace_back(Event::bus()->m_events.config.preReload.listen([]()
-                                                                                     { onPreConfigReload(); }));
     gPlugin->m_vListeners.emplace_back(Event::bus()->m_events.config.reloaded.listen([]()
                                                                                      { gPlugin->update(); }));
 

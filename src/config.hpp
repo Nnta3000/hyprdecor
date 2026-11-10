@@ -274,7 +274,6 @@ struct SConfig
     uint64_t    barColor             = 0x88333333;
     bool        blur                 = false;
     int         padding              = 7;
-    int         buttonPadding        = 5;
 
     // Width of the band along the OUTER edge of the frame that starts a resize, in ART
     // px (so it follows defaults.scale). Measured from the decoration box inward.
@@ -284,7 +283,6 @@ struct SConfig
     // -- which the frame is. So without this band the frame was grabbable for a drag but
     // never showed or acted as a resize edge. 0 disables the band entirely.
     double      resizeGrabWidth      = 8;
-    std::string buttonsAlignment     = "right";
     bool        partOfWindow         = true;
     bool        precedenceOverBorder = false;
     // The frame and its items are drawn OVER the window, never behind it. Under, the
@@ -292,7 +290,6 @@ struct SConfig
     // window was hidden by it, which made `inset` look broken. Opting out is still
     // possible for a decoration that must never cover client pixels.
     bool        renderAbove          = true;
-    std::string onDoubleClick;
 
     // App icon
     bool     appIconEnabled = false;
