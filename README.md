@@ -150,8 +150,4 @@ See [docs/configuration.md](docs/configuration.md) for the full reference, inclu
 
 Originally by CapsAdmin. Decorations inspired by the Android nine-patch format.
 
-The `orange` frame set is based on the visual style created by
-**[@P1PEGraphics](https://www.youtube.com/@P1PEGraphics)** for
-[this video](https://www.youtube.com/watch?v=GPr_cM7Nyzk). It is used locally but is
-**not redistributed** with this repository; the images are excluded by `.gitignore`.
-See [`assets/orange/CREDITS.md`](assets/orange/CREDITS.md).
+
