@@ -95,26 +95,3 @@ if(HYPRDECOR_BUILD_TESTS)
     add_test(NAME config_value COMMAND config_value_test)
     add_test(NAME colorparse COMMAND colorparse_test)
 endif()
-
-# ---------------------------------------------------------------------------
-# Palette dithering tools (offline; no Hyprland, no GPU, no cairo).
-#
-#   cmake --build build --target palette-gen dither-test
-#   ./build/palette-gen --palette ../orange-palette.png --out-dir ../build
-#   ./build/dither-test --palette ../orange-palette.png --in scene.png --out out.png
-#
-# They read and write images through ImageMagick's `magick` binary rather than linking
-# an image library, so the only requirement is magick being on PATH at run time.
-# ---------------------------------------------------------------------------
-# Slated for removal together with the shader path (ROADMAP, commit R1). Off by default so
-# `make all` and hyprpm builds do not compile them.
-option(HYPRDECOR_BUILD_TOOLS "Build the palette dithering tools" OFF)
-if(HYPRDECOR_BUILD_TOOLS)
-    add_executable(palette-gen tools/palette_gen.cpp)
-    target_include_directories(palette-gen PRIVATE tools)
-    target_compile_options(palette-gen PRIVATE -Wall -Wextra -Wunused -Wuninitialized)
-
-    add_executable(dither-test tools/dither_test.cpp)
-    target_include_directories(dither-test PRIVATE tools)
-    target_compile_options(dither-test PRIVATE -Wall -Wextra -Wunused -Wuninitialized)
-endif()
