@@ -9,6 +9,8 @@
 #include <hyprland/src/helpers/Color.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 
+#include "colorparse.hpp"
+
 #include <optional>
 #include <string>
 #include <vector>
@@ -55,24 +57,11 @@ namespace Compat {
         return out;
     }
 
-    // Minimal replacement for the removed configStringToInt. Supports decimal, hex,
-    // and rgba(rrggbbaa) / rgb(rrggbb) colors.
+    /**
+     * Parses a colour or integer config value into 0xAARRGGBB (see ColorParse::parse for
+     * the accepted forms). Returns nullopt for malformed input; callers must report it.
+     */
     inline std::optional<int64_t> configStringToInt(const std::string& in) {
-        try {
-            const auto COLOROPEN = in.find('(');
-            if (COLOROPEN != std::string::npos && in.back() == ')') {
-                const auto HEX = in.substr(COLOROPEN + 1, in.size() - COLOROPEN - 2);
-                if (HEX.size() == 6 || HEX.size() == 8) {
-                    const auto VALUE = std::stoull(HEX, nullptr, 16);
-                    return (int64_t)(HEX.size() == 6 ? (VALUE << 8) | 0xFF : VALUE);
-                }
-                return std::nullopt;
-            }
-
-            if (in.starts_with("0x"))
-                return std::stoll(in, nullptr, 16);
-
-            return std::stoll(in, nullptr, 10);
-        } catch (...) { return std::nullopt; }
+        return ColorParse::parse(in);
     }
 }

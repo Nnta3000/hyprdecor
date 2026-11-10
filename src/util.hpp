@@ -23,6 +23,17 @@
 #include "plugin.hpp"
 #include "ninepatch.hpp"
 
+/**
+ * Whether `path` exists. Any filesystem error (permission denied, loop) counts as "does
+ * not exist": std::filesystem::exists(path) throws instead, and these checks run from
+ * the render path where an uncaught exception would take the compositor down.
+ */
+inline bool pathExists(const std::string &path)
+{
+    std::error_code ec;
+    return std::filesystem::exists(path, ec) && !ec;
+}
+
 // Nine-patch parsing and composition live in ninepatch.hpp so they can be unit
 // tested without Hyprland (see tests/ninepatch_test.cpp). These wrappers only add
 // the plugin-specific bits: logging and optional icon pre-scaling.
@@ -173,11 +184,11 @@ inline std::string findDesktopFile(const std::string &appId)
     // Search for desktop file
     for (const auto &path : searchPaths)
     {
-        if (!std::filesystem::exists(path))
+        if (!pathExists(path))
             continue;
 
         std::string desktop = path + appId + ".desktop";
-        if (std::filesystem::exists(desktop))
+        if (pathExists(desktop))
             return desktop;
     }
 
@@ -215,7 +226,7 @@ inline std::string resolveIconPath(const std::string &iconName)
         return "";
 
     // If already an absolute path
-    if (iconName[0] == '/' && std::filesystem::exists(iconName))
+    if (iconName[0] == '/' && pathExists(iconName))
         return iconName;
 
     std::vector<std::string> iconPaths;
@@ -280,7 +291,7 @@ inline std::string resolveIconPath(const std::string &iconName)
 
     for (const auto &path : iconPaths)
     {
-        if (std::filesystem::exists(path) && path.ends_with(".png"))
+        if (pathExists(path) && path.ends_with(".png"))
         {
             return path;
         }

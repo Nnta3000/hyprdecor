@@ -11,10 +11,13 @@ extern "C" {
 #include <lauxlib.h>
 }
 
+#include <cstdio>
 #include <format>
 #include <map>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <utility>
 
 using namespace Hyprdecor::Lua;
 
@@ -25,30 +28,24 @@ static_assert(LUA_VERSION_NUM == 505, "hyprdecor must be built against Lua 5.5 (
 namespace {
     constexpr const char *TAG = "[HYPRDECOR] ";
 
-    // Raises a Lua error, aborting the rest of the config evaluation. Deliberate: a
-    // half-applied decoration is worse than a loud failure.
-    //
-    // lua_error() is a longjmp: it skips destructors of every live object in this
-    // frame. The message is therefore copied into a fixed buffer and pushed, and the
-    // longjmp happens with nothing else alive.
-    [[noreturn]] void raiseF(lua_State *L, const char *message) noexcept
+    /** Thrown by raise(); caught only by lSetup(), which turns it into a Lua error. */
+    struct SSetupError : std::runtime_error
     {
-        lua_pushstring(L, message);
-        lua_error(L); // does not return
-        std::abort();
-    }
+        using std::runtime_error::runtime_error;
+    };
 
-    // Builds the message in a nested scope so its std::string/format temporaries are
-    // destroyed before raiseF() longjmps.
+    /**
+     * Aborts setup() with a message that names the offending field.
+     *
+     * Throws instead of calling lua_error() directly: lua_error() longjmps, which skips the
+     * destructors of every C++ object between here and the Lua boundary (the SConfig under
+     * construction, strings, optionals). lSetup() catches this and raises the Lua error
+     * only after all of them are gone. `L` is kept so call sites read as before.
+     */
     template <typename... Args>
-    int raise(lua_State *L, std::format_string<Args...> fmt, Args &&...args)
+    [[noreturn]] int raise([[maybe_unused]] lua_State *L, std::format_string<Args...> fmt, Args &&...args)
     {
-        char buf[1024]{};
-        {
-            const std::string MESSAGE = std::format(fmt, std::forward<Args>(args)...);
-            std::snprintf(buf, sizeof(buf), "%s", MESSAGE.c_str());
-        }
-        raiseF(L, buf);
+        throw SSetupError(std::format(fmt, std::forward<Args>(args)...));
     }
 
     bool hasField(lua_State *L, int tableIdx, const char *key)
@@ -190,11 +187,12 @@ static bool readSignedSides(lua_State *L, int borderIdx, const char *key, SSigne
     return LuaRead::readSided(L, borderIdx, key, out);
 }
 
-// hl.plugin.hyprdecor.setup({ defaults = { border = {...}, title = {...} } })
-//
-// Every documented field is validated. Anything malformed is a hard error: setup()
-// either applies completely or not at all.
-int Hyprdecor::Lua::lSetup(lua_State *L)
+/**
+ * Parses and applies hl.plugin.hyprdecor.setup({...}).
+ * Validation errors are thrown as SSetupError (see raise()); nothing is applied to the
+ * plugin until the whole table has validated.
+ */
+static int applySetup(lua_State *L)
 {
     if (lua_gettop(L) < 1 || !lua_istable(L, 1))
         return raise(L, "hyprdecor.setup: expected a table argument");
@@ -903,4 +901,32 @@ int Hyprdecor::Lua::lSetup(lua_State *L)
     lua_settop(L, 0);
     lua_pushboolean(L, 1);
     return 1;
+}
+
+/**
+ * Entry point for hl.plugin.hyprdecor.setup({...}).
+ * A malformed config is a hard error: setup() applies completely or not at all.
+ */
+int Hyprdecor::Lua::lSetup(lua_State *L)
+{
+    // lua_error() longjmps and would skip the destructors of anything still alive in this
+    // frame, so the message is copied into a plain buffer and every C++ object (the
+    // exception included) is destroyed before the Lua error is raised.
+    char message[1024] = {};
+
+    try
+    {
+        return applySetup(L);
+    }
+    catch (const std::exception &e)
+    {
+        std::snprintf(message, sizeof(message), "%s", e.what());
+    }
+    catch (...)
+    {
+        std::snprintf(message, sizeof(message), "hyprdecor.setup: unexpected internal error");
+    }
+
+    lua_pushstring(L, message);
+    return lua_error(L);
 }
