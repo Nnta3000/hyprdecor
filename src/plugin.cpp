@@ -99,63 +99,6 @@ std::vector<CHyprWindowDecorator *> CPlugin::liveDecorators() const
     return out;
 }
 
-Hyprlang::CParseResult onNewButtonTextured([[maybe_unused]] const char *K, const char *V)
-{
-    std::string v = V;
-    const auto vars = Compat::splitVars(v);
-
-    Hyprlang::CParseResult result;
-
-    // hyprdecor-button = size, action, active_tex, [inactive_tex], [hover_tex], [pressed_tex]
-
-    if (vars[0].empty() || vars[1].empty() || vars[2].empty())
-    {
-        result.setError("size, action and active_tex cannot be empty");
-        return result;
-    }
-
-    float size = 10;
-    try
-    {
-        size = std::stof(vars[0]);
-    }
-    catch (std::exception &e)
-    {
-        result.setError("failed to parse size");
-        return result;
-    }
-
-    SHyprButton button;
-    button.size = {size, size};
-    button.cmd = vars[1];
-
-    if (vars.size() == 3)
-    {
-        std::string base = vars[2];
-        button.pathActive = gPlugin->resolveTexturePath(base, {"", "_normal", "_active", "_focused"});
-        button.pathInactive = gPlugin->resolveTexturePath(base, {"_unfocused", "_inactive"}, button.pathActive);
-        button.pathHover = gPlugin->resolveTexturePath(base, {"_hover"}, button.pathActive);
-        button.pathPressed = gPlugin->resolveTexturePath(base, {"_pressed", "_clicked"}, button.pathHover);
-    }
-    else
-    {
-        button.pathActive = vars[2];
-        button.pathInactive = vars.size() > 3 ? vars[3] : vars[2];
-        button.pathHover = vars.size() > 4 ? vars[4] : button.pathActive;
-        button.pathPressed = vars.size() > 5 ? vars[5] : button.pathHover;
-    }
-
-    gPlugin->m_vButtons.push_back(button);
-
-    for (auto bar : gPlugin->liveDecorators())
-    {
-        if (bar)
-            bar->m_bButtonsDirty = true;
-    }
-
-    return result;
-}
-
 void CPlugin::loadAllTextures()
 {
     // Elements: the config is ALWAYS copied, so editing an existing element's offsets
@@ -303,25 +246,7 @@ void CPlugin::loadAllTextures()
         m_szLoadedTitleBg = cfg.titleBgPath;
     }
 
-    // load textures if they exist and are not loaded
-    for (auto &button : m_vButtons)
-    {
-        if (!button.pathActive.empty() && button.texActive->m_texID == 0)
-        {
-            loadTexture(button.pathActive, button.texActive, ninepatch_linear_filtering);
-            if (button.size.x <= 0 && button.texActive->m_texID != 0)
-                button.size = button.texActive->m_size;
-        }
-        if (!button.pathInactive.empty() && button.texInactive->m_texID == 0)
-            loadTexture(button.pathInactive, button.texInactive, ninepatch_linear_filtering);
-        if (!button.pathHover.empty() && button.texHover->m_texID == 0)
-            loadTexture(button.pathHover, button.texHover, ninepatch_linear_filtering);
-        if (!button.pathPressed.empty() && button.texPressed->m_texID == 0)
-            loadTexture(button.pathPressed, button.texPressed, ninepatch_linear_filtering);
 
-        if (button.size.x <= 0)
-            button.size = {20, 20};
-    }
 }
 
 CPlugin::CPlugin(HANDLE handle)
@@ -540,10 +465,7 @@ void CPlugin::update()
     bar_blur                 = C.blur;
     bar_part_of_window       = C.partOfWindow;
     bar_precedence_over_border = C.precedenceOverBorder;
-    bar_buttons_alignment    = C.buttonsAlignment;
     decoration_padding       = C.padding;
-    bar_button_padding       = C.buttonPadding;
-    on_double_click          = C.onDoubleClick;
     decoration_appicon_enabled = C.appIconEnabled;
     decoration_appicon_offset  = {C.appIconOffsetX, C.appIconOffsetY};
     decoration_render_above    = C.renderAbove;

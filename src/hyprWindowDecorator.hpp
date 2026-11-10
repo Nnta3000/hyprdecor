@@ -10,7 +10,6 @@
 #include <hyprland/src/devices/ITouch.hpp>
 #include <hyprland/src/desktop/rule/windowRule/WindowRule.hpp>
 #include <hyprland/src/helpers/AnimatedVariable.hpp>
-#include <hyprland/src/helpers/time/Time.hpp>
 #include <cairo/cairo.h>
 #include "plugin.hpp"
 #include "layout.hpp"
@@ -46,8 +45,6 @@ public:
 
   virtual uint64_t getDecorationFlags();
 
-  bool m_bButtonsDirty = true;
-
   virtual std::string getDisplayName();
 
   PHLWINDOW getOwner();
@@ -78,7 +75,6 @@ private:
   CBox m_lastLoggedBox;
 
   SP<Render::ITexture> m_pTextTex;
-  SP<Render::ITexture> m_pButtonsTex;
   SP<Render::ITexture> m_pBarFinalTex;
 
   SP<Render::ITexture> m_pAppIconTex;
@@ -97,7 +93,6 @@ private:
   std::optional<CHyprColor> m_bForcedBarColor;
   std::optional<CHyprColor> m_bForcedTitleColor;
 
-  Time::steady_tp m_lastMouseDown = Time::steadyNow();
 
   PHLANIMVAR<CHyprColor> m_cRealBarColor;
 
@@ -138,9 +133,6 @@ private:
   int m_iHoveredElement = -1;
   int m_iPressedElement = -1;
   void renderText(SP<Render::ITexture> out, const std::string &text, const CHyprColor &color, const Vector2D &bufferSize, const float scale, const int fontSize);
-  bool renderBarButtons(const Vector2D &bufferSize, const float scale);
-  void renderBarButtonsText(Render::CRenderContext &ctx, CBox *barBox, const float scale, const float a);
-  void damageOnButtonHover();
 
   bool inputIsValid();
   bool isPointOnBar(Vector2D COORDS);
@@ -188,7 +180,6 @@ private:
   void handleDownEvent(Event::SCallbackInfo &info, std::optional<ITouch::SDownEvent> touchEvent);
   void handleUpEvent(Event::SCallbackInfo &info);
   void handleMovement();
-  int indexToButton(Vector2D COORDS);
 
   CBox assignedBoxGlobal();
 
@@ -206,13 +197,6 @@ private:
   bool m_bDragPending = false;
   bool m_bCancelledDown = false;
   int m_touchId = 0;
-
-  int m_iButtonPressedIdx = -1;
-
-  // store hover state for buttons as a bitfield
-  unsigned int m_iButtonHoverState = 0;
-
-  size_t getVisibleButtonCount(const Vector2D &bufferSize, const float scale);
 
   friend class CRenderPassElement;
 };

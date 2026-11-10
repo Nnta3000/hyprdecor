@@ -49,7 +49,6 @@ static bool pinnedBit(const PHLWINDOW &W)
     return W && (((uint8_t)W->m_state & (uint8_t)Desktop::View::WINDOW_STATE_PINNED) != 0);
 }
 
-static std::string luaQuote(const std::string &TEXT);
 static void        dispatchLua(const std::string &what, const std::string &code);
 static void        dispatchLuaSync(const std::string &what, const std::string &code);
 
@@ -108,7 +107,6 @@ CHyprWindowDecorator::CHyprWindowDecorator(PHLWINDOW pWindow) : IHyprWindowDecor
         { onMouseMove(coords); });
 
     m_pTextTex = makeShared<Render::GL::CGLTexture>();
-    m_pButtonsTex = makeShared<Render::GL::CGLTexture>();
 
     m_pAppIconTex = makeShared<Render::GL::CGLTexture>();
     m_pBarFinalTex = makeShared<Render::GL::CGLTexture>();
@@ -267,7 +265,7 @@ void CHyprWindowDecorator::onMouseButton(Event::SCallbackInfo &info, IPointer::S
         // so the grab zone and the arrow agree exactly.
         const auto  COORDS = cursorRelativeToBar();
         const char *EDGE   = resizeEdgeAt(COORDS);
-        if (EDGE && elementIndexAt(COORDS) == -1 && indexToButton(COORDS) == -1)
+        if (EDGE && elementIndexAt(COORDS) == -1)
         {
             // Pass the edge we already know. Without it Hyprland picks a CORNER from the
             // cursor quadrant alone (DragController::dragBegin), never a single edge, so a
@@ -322,9 +320,6 @@ void CHyprWindowDecorator::onMouseMove([[maybe_unused]] Vector2D coords)
         return;
 
     updateElementHover();
-
-    if (!gPlugin->m_vButtons.empty())
-        damageOnButtonHover();
 
     if (!m_bDragPending)
         return;
@@ -418,7 +413,7 @@ void CHyprWindowDecorator::applyResizeCursor()
     // An item under the pointer keeps its own cursor (buttons must look clickable). The
     // band test itself is resizeEdgeAt(), the SAME call the resize action makes, so the
     // cursor and the grab zone are identical by construction.
-    const bool ONITEM = elementIndexAt(COORDS) != -1 || indexToButton(COORDS) != -1;
+    const bool ONITEM = elementIndexAt(COORDS) != -1;
 
     const char *SHAPE = ONITEM ? nullptr : resizeEdgeAt(COORDS);
 
@@ -522,8 +517,6 @@ void CHyprWindowDecorator::handleDownEvent(Event::SCallbackInfo &info, std::opti
         COORDS = Vector2D(PMONITOR->m_position.x + e.pos.x * PMONITOR->m_size.x, PMONITOR->m_position.y + e.pos.y * PMONITOR->m_size.y) - assignedBoxGlobal().pos();
     }
 
-    const std::string ON_DOUBLE_CLICK = gPlugin->on_double_click;
-
     if (!isPointOnBar(COORDS))
     {
         // Click is outside bar bounds - cleanup if we were dragging
@@ -562,24 +555,7 @@ void CHyprWindowDecorator::handleDownEvent(Event::SCallbackInfo &info, std::opti
         return;
     }
 
-    m_iButtonPressedIdx = indexToButton(COORDS);
-    if (m_iButtonPressedIdx != -1)
-    {
-        damageEntire();
-        return;
-    }
-
-    if (!ON_DOUBLE_CLICK.empty() &&
-        std::chrono::duration_cast<std::chrono::milliseconds>(Time::steadyNow() - m_lastMouseDown).count() < 400 /* Arbitrary delay I found suitable */)
-    {
-        dispatchLua("double-click", std::format("hl.dispatch(hl.dsp.exec_cmd({}))", luaQuote(ON_DOUBLE_CLICK)));
-        m_bDragPending = false;
-    }
-    else
-    {
-        m_lastMouseDown = Time::steadyNow();
-        m_bDragPending = true;
-    }
+    m_bDragPending = true;
 }
 
 void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
@@ -617,15 +593,6 @@ void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
         damageEntire();
     }
 
-    if (m_iButtonPressedIdx != -1)
-    {
-        if (indexToButton(cursorRelativeToBar()) == m_iButtonPressedIdx)
-        {
-            dispatchLua("button", std::format("hl.dispatch(hl.dsp.exec_cmd({}))", luaQuote(gPlugin->m_vButtons[m_iButtonPressedIdx].cmd)));
-        }
-        m_iButtonPressedIdx = -1;
-        damageEntire();
-    }
 }
 
 // A `maximize` toggle is THREE states, and the decorator state already tells which one a
@@ -662,20 +629,6 @@ void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
 static std::string luaWindowSelector(const PHLWINDOW &PWINDOW)
 {
     return std::format("address:0x{:x}", (uintptr_t)PWINDOW.get());
-}
-
-// A Lua long-bracket string. User-configured commands contain quotes, `$` and
-// backslashes often enough that %q-style escaping would be a bug waiting to happen; a
-// long bracket copies bytes verbatim. The bracket level is raised until the closing
-// sequence cannot appear inside the text: [[ ]] , then [=[ ]=] , then [==[ ]==] ...
-static std::string luaQuote(const std::string &TEXT)
-{
-    for (size_t LEVEL = 0;; LEVEL++)
-    {
-        const auto EQ = std::string(LEVEL, '=');
-        if (!TEXT.contains(std::format("]{}]", EQ)))
-            return std::format("[{0}[{1}]{0}]", EQ, TEXT);
-    }
 }
 
 // `what` names the caller for the log, so a failing dispatch is attributable.
@@ -856,7 +809,6 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
     if (focusChanged)
     {
         m_bWindowHasFocus = windowFocus;
-        m_bButtonsDirty = true;
         // The title texture is keyed on title text and box size only, so a focus change
         // that swaps `title.font_unfocused` in would otherwise keep the old pixels.
         m_bForceTitleRerender = true;
@@ -1080,7 +1032,6 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
     }
 
     if (m_bWindowSizeChanged)
-        m_bButtonsDirty = true;
 
     // Items. ONE layout pass produces the rectangles; hit-testing and
     // `hyprctl hyprdecor status` read the very same ones.
@@ -1320,30 +1271,9 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
         }
     }
 
-    const bool BTNSVERTICAL = gPlugin->decoration_title_placement == "left" || gPlugin->decoration_title_placement == "right";
-    const Vector2D BTNWANT = BTNSVERTICAL ? Vector2D((double)topBarBox.height, (double)topBarBox.width) : Vector2D((double)topBarBox.width, (double)topBarBox.height);
-
-    if (m_bButtonsDirty || m_bWindowSizeChanged || m_pButtonsTex->m_size != BTNWANT)
-    {
-        const bool VERTICAL = gPlugin->decoration_title_placement == "left" || gPlugin->decoration_title_placement == "right";
-        m_bButtonsDirty = renderBarButtons(VERTICAL ? Vector2D((double)topBarBox.height, (double)topBarBox.width) : Vector2D((double)topBarBox.width, (double)topBarBox.height), pMonitor->m_scale);
-    }
-
-    if (m_pButtonsTex->m_texID)
-    {
-        Render::GL::CHyprOpenGLImpl::STextureRenderData data;
-        data.a = a;
-        Render::GL::g_pHyprOpenGL->renderTexture(ctx, m_pButtonsTex, topBarBox, data);
-    }
-
-    Render::GL::g_pHyprOpenGL->disableScissor();
-
-    renderBarButtonsText(ctx, &topBarBox, pMonitor->m_scale, a);
-
     m_bWindowSizeChanged = false;
     m_bTitleColorChanged = false;
     m_bForceTitleRerender = false;
-    m_bButtonsDirty = false;
 }
 
 eDecorationType CHyprWindowDecorator::getDecorationType()
@@ -1629,11 +1559,9 @@ void CHyprWindowDecorator::invalidateTextures()
 {
     m_pBarFinalTex = makeShared<Render::GL::CGLTexture>();
     m_pTextTex = makeShared<Render::GL::CGLTexture>();
-    m_pButtonsTex = makeShared<Render::GL::CGLTexture>();
 
     // Mark everything as dirty to force full re-render
     m_bWindowSizeChanged = true;
-    m_bButtonsDirty = true;
     m_bTitleColorChanged = true;
     m_bForceTitleRerender = true;
     m_bNinePatchChanged = true;
@@ -1642,18 +1570,3 @@ void CHyprWindowDecorator::invalidateTextures()
     damageEntire();
 }
 
-void CHyprWindowDecorator::damageOnButtonHover()
-{
-    const auto COORDS = cursorRelativeToBar();
-    const int idx = indexToButton(COORDS);
-
-    uint32_t newHoverState = 0;
-    if (idx != -1)
-        newHoverState = (1 << idx);
-
-    if (newHoverState != m_iButtonHoverState)
-    {
-        m_iButtonHoverState = newHoverState;
-        damageEntire();
-    }
-}

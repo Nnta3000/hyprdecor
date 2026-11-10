@@ -43,22 +43,6 @@ struct SElementTex
     SNinePatchInfo npi;
 };
 
-struct SHyprButton
-{
-    std::string cmd = "";
-    Vector2D size = {10, 10};
-
-    // textured states
-    SP<Render::ITexture> texActive = makeShared<Render::GL::CGLTexture>();
-    SP<Render::ITexture> texInactive = makeShared<Render::GL::CGLTexture>();
-    SP<Render::ITexture> texHover = makeShared<Render::GL::CGLTexture>();
-    SP<Render::ITexture> texPressed = makeShared<Render::GL::CGLTexture>();
-
-    std::string pathActive = "";
-    std::string pathInactive = "";
-    std::string pathHover = "";
-    std::string pathPressed = "";
-};
 
 /** Resolved frame assets and metrics for the default config or one named theme. */
 struct SFrame
@@ -140,11 +124,8 @@ public:
     std::string decoration_title_placement = "top";
     bool bar_part_of_window = true;
     bool bar_precedence_over_border = false;
-    std::string bar_buttons_alignment = "right";
     int decoration_padding = 7;
-    int bar_button_padding = 5;
     bool enabled = true;
-    std::string on_double_click;
 
     // The default frame. Named themes are resolved into their own SFrame entries.
     SFrame frame;
@@ -174,7 +155,6 @@ public:
     Vector2D decoration_appicon_offset;
 
     HANDLE m_pHandle = nullptr;
-    std::vector<SHyprButton> m_vButtons;
     std::vector<SElementTex> m_vElements;
 
     // Title backdrop: a nine-patch stretched to the title box, drawn behind the text.

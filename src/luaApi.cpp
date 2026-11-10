@@ -486,7 +486,6 @@ static int applySetup(lua_State *L)
         if (hasField(L, BAR, "stack_end"))
             NEXT.regionStackEnd = boolField(L, BAR, "stack_end", false);
         if (hasField(L, BAR, "button_padding"))
-            NEXT.buttonPadding = (int)numberField(L, BAR, "button_padding", 5);
 
         if (hasField(L, BAR, "resize_grab_width"))
         {
@@ -495,24 +494,13 @@ static int applySetup(lua_State *L)
                 return raise(L, "hyprdecor.setup: 'defaults.bar.resize_grab_width' must be >= 0");
             NEXT.resizeGrabWidth = RW;
         }
-        if (hasField(L, BAR, "buttons_alignment"))
-        {
-            const auto ALIGN = stringField(L, BAR, "buttons_alignment");
-            if (ALIGN)
-                NEXT.buttonsAlignment = *ALIGN;
-        }
         if (hasField(L, BAR, "part_of_window"))
             NEXT.partOfWindow = boolField(L, BAR, "part_of_window", true);
         if (hasField(L, BAR, "precedence_over_border"))
             NEXT.precedenceOverBorder = boolField(L, BAR, "precedence_over_border", false);
         if (hasField(L, BAR, "render_above"))
             NEXT.renderAbove = boolField(L, BAR, "render_above", true);
-        if (hasField(L, BAR, "on_double_click"))
-        {
-            const auto CMD = stringField(L, BAR, "on_double_click");
-            if (CMD)
-                NEXT.onDoubleClick = *CMD;
-        }
+
         lua_pop(L, 1);
     }
 
