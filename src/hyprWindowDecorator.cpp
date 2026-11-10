@@ -1651,6 +1651,8 @@ void CHyprWindowDecorator::draw(Render::CRenderContext &ctx, PHLMONITOR pMonitor
 void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pMonitor, const float &a)
 {
     const auto PWINDOW = m_pWindow.lock();
+    if (!PWINDOW)
+        return;
 
     bool windowFocus = PWINDOW == Desktop::focusState()->window();
     bool focusChanged = windowFocus != m_bWindowHasFocus;
@@ -1668,8 +1670,8 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
     // damage the decoration on their own: an item would keep its old visibility until
     // something else happened to repaint. Compare a cheap snapshot instead.
     {
-        const auto W = m_pWindow.lock();
-        const auto FS = Fullscreen::controller()->getFullscreenModes(W);
+        const auto &W = PWINDOW;
+        const auto  FS = Fullscreen::controller()->getFullscreenModes(W);
         const int  SNAP = (W->isFloating() ? 1 : 0) | (pinnedBit(W) ? 2 : 0) | (FS.internal != Fullscreen::FSMODE_NONE ? 4 : 0) |
                          (FS.internal == Fullscreen::FSMODE_FULLSCREEN ? 8 : 0);
 
@@ -1697,8 +1699,6 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
 
     const auto scaledRounding = ROUNDING > 0 ? ROUNDING * pMonitor->m_scale - 2 /* idk why but otherwise it looks bad due to the gaps */ : 0;
 
-    m_seExtents = currentExtents();
-
     const auto DECOBOX = assignedBoxGlobal();
 
     // Never build regions from a degenerate box: pixman rejects them. Log loudly,
@@ -1706,9 +1706,8 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
     // decoration would silently never be drawn.
     if (DECOBOX.w <= 0 || DECOBOX.h <= 0)
     {
-        const auto RAW = assignedBoxGlobal();
-        Log::logger->log(Log::WARN, std::format("[HYPRDECOR] draw skipped: degenerate decobox {}x{} (raw assigned {}x{} at {},{}), window {}x{} at {},{}",
-                                                DECOBOX.w, DECOBOX.h, RAW.w, RAW.h, RAW.x, RAW.y,
+        Log::logger->log(Log::WARN, std::format("[HYPRDECOR] draw skipped: degenerate decobox {}x{} at {},{}, window {}x{} at {},{}",
+                                                DECOBOX.w, DECOBOX.h, DECOBOX.x, DECOBOX.y,
                                                 PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x,
                                                 PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y,
                                                 PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x,
@@ -1731,10 +1730,9 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
         return;
     }
 
-    static CBox s_lastLoggedBox;
-    if (DECOBOX != s_lastLoggedBox)
+    if (DECOBOX != m_lastLoggedBox)
     {
-        s_lastLoggedBox = DECOBOX;
+        m_lastLoggedBox = DECOBOX;
         Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] draw: decobox={},{} {}x{} titleBar={},{} {}x{} scale={} surface={} ninepatch={}",
                                              DECOBOX.x, DECOBOX.y, DECOBOX.w, DECOBOX.h,
                                              titleBarBox.x, titleBarBox.y, titleBarBox.w, titleBarBox.h,
@@ -1753,7 +1751,10 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
                           PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y - 2};
 
         if (windowBox.w < 1 || windowBox.h < 1)
+        {
+            Render::GL::g_pHyprOpenGL->disableScissor();
             return;
+        }
 
         glClearStencil(0);
         glClear(GL_STENCIL_BUFFER_BIT);
@@ -1916,7 +1917,6 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
             // Logical -> device, applied exactly once. The rects are decoration-local,
             // so add the decoration's device origin.
             const double M   = pMonitor->m_scale;
-            const double DEV = item.artScale * M;
 
             Render::GL::CHyprOpenGLImpl::STextureRenderData edata;
             edata.a = a;
@@ -1959,8 +1959,6 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
                 const CBox DEST{titleBarBox.x + item.rect.x * M, titleBarBox.y + item.rect.y * M, item.rect.w * M, item.rect.h * M};
                 Render::GL::g_pHyprOpenGL->renderTexture(ctx, STATE.tex, DEST, edata);
             }
-
-            (void)DEV;
         }
     }
 
@@ -2149,18 +2147,6 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
     m_bTitleColorChanged = false;
     m_bForceTitleRerender = false;
     m_bButtonsDirty = false;
-
-    // The extents changed, so the layout must be recalculated -- but NEVER from inside
-    // a render pass. recalculateMonitor() mutates window geometry while the renderer is
-    // iterating windows, and the second window to open would drop the first. Defer it
-    // to the main loop instead.
-    if (m_iLastHeight != frame().decoration_offset_top)
-    {
-        // Record only. Forcing recalculateMonitor() here threw the newly laid-out
-        // window back to an output-sized box; a fullscreen cycle is the only thing that
-        // recomputes it correctly, which is why the bug "fixed itself" that way.
-        m_iLastHeight = frame().decoration_offset_top;
-    }
 }
 
 eDecorationType CHyprWindowDecorator::getDecorationType()
@@ -2311,14 +2297,6 @@ bool CHyprWindowDecorator::isPointOnBar(Vector2D COORDS)
     return true;
 }
 
-// Is COORDS inside the resize band? Delegates to resizeEdgeAt() so the ACTION and the
-// CURSOR answer from one expression; this used to be a second copy of the same maths and
-// the two disagreed at the box boundary.
-bool CHyprWindowDecorator::isInResizeBand(Vector2D COORDS)
-{
-    return resizeEdgeAt(COORDS) != nullptr;
-}
-
 eDecorationLayer CHyprWindowDecorator::getDecorationLayer()
 {
     // Frame and items are drawn OVER the window by default: under, the client painted
@@ -2387,6 +2365,23 @@ std::string CHyprWindowDecorator::ruleTheme() const
     return "";
 }
 
+/**
+ * Parses the value of a colour window-rule effect.
+ * An unparsable value is logged and ignored, so the window keeps the configured colour
+ * instead of silently turning transparent black.
+ */
+static std::optional<CHyprColor> parseEffectColor(const std::string &value, const char *effect)
+{
+    const auto PARSED = Compat::configStringToInt(value);
+    if (!PARSED)
+    {
+        Log::logger->log(Log::WARN, std::format("[HYPRDECOR] {}: cannot parse colour \"{}\" (expected 0xAARRGGBB, rgb(rrggbb) or rgba(rrggbbaa))", effect, value));
+        return std::nullopt;
+    }
+
+    return CHyprColor(*PARSED);
+}
+
 void CHyprWindowDecorator::updateRules()
 {
     // window.updateRules can arrive after the window has gone away; there is nothing
@@ -2402,12 +2397,17 @@ void CHyprWindowDecorator::updateRules()
     m_bForcedTitleColor = std::nullopt;
     m_hidden = false;
 
-    if (PWINDOW->m_ruleApplicator->m_otherProps.props.contains(gPlugin->m_nobarRuleIdx))
-        m_hidden = truthy(PWINDOW->m_ruleApplicator->m_otherProps.props.at(gPlugin->m_nobarRuleIdx)->effect);
-    if (PWINDOW->m_ruleApplicator->m_otherProps.props.contains(gPlugin->m_barColorRuleIdx))
-        m_bForcedBarColor = CHyprColor(Compat::configStringToInt(PWINDOW->m_ruleApplicator->m_otherProps.props.at(gPlugin->m_barColorRuleIdx)->effect).value_or(0));
-    if (PWINDOW->m_ruleApplicator->m_otherProps.props.contains(gPlugin->m_titleColorRuleIdx))
-        m_bForcedTitleColor = CHyprColor(Compat::configStringToInt(PWINDOW->m_ruleApplicator->m_otherProps.props.at(gPlugin->m_titleColorRuleIdx)->effect).value_or(0));
+    if (PWINDOW->m_ruleApplicator)
+    {
+        const auto &PROPS = PWINDOW->m_ruleApplicator->m_otherProps.props;
+
+        if (PROPS.contains(gPlugin->m_nobarRuleIdx))
+            m_hidden = truthy(PROPS.at(gPlugin->m_nobarRuleIdx)->effect);
+        if (PROPS.contains(gPlugin->m_barColorRuleIdx))
+            m_bForcedBarColor = parseEffectColor(PROPS.at(gPlugin->m_barColorRuleIdx)->effect, "hyprdecor:bar_color");
+        if (PROPS.contains(gPlugin->m_titleColorRuleIdx))
+            m_bForcedTitleColor = parseEffectColor(PROPS.at(gPlugin->m_titleColorRuleIdx)->effect, "hyprdecor:title_color");
+    }
 
     if (prevHidden != m_hidden)
         g_pDecorationPositioner->repositionDeco(this);

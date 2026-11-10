@@ -97,7 +97,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
     {
         HyprlandAPI::addNotification(gPlugin->m_pHandle, "[hyprdecor] Failure in initialization: Version mismatch (headers ver is not equal to running hyprland ver)",
                                      CHyprColor{1.0, 0.2, 0.2, 1.0}, 5000);
-        throw std::runtime_error("[hb] Version mismatch");
+        gPlugin.reset();
+        throw std::runtime_error("[hyprdecor] Version mismatch");
     }
 
     gPlugin->m_nobarRuleIdx = Desktop::Rule::windowEffects()->registerEffect("hyprdecor:no_bar");

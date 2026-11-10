@@ -63,8 +63,6 @@ public:
 
 
 private:
-  SBoxExtents m_seExtents;
-
   PHLWINDOWREF m_pWindow;
 
   // Empty = default frame. Otherwise resolved through CPlugin::frameFor(); storing the
@@ -75,6 +73,9 @@ private:
 
   // Last window size we logged from getPositioningInfo(), to avoid log spam.
   Vector2D m_vLastLoggedSize = {-1, -1};
+
+  /** Last decoration box written to the debug log, so draw() logs on change only. */
+  CBox m_lastLoggedBox;
 
   SP<Render::ITexture> m_pTextTex;
   SP<Render::ITexture> m_pButtonsTex;
@@ -144,10 +145,6 @@ private:
   bool inputIsValid();
   bool isPointOnBar(Vector2D COORDS);
 
-  // True when COORDS (decoration-local) is in the band along the OUTER edge that starts a
-  // resize instead of a drag or an item click.
-  bool isInResizeBand(Vector2D COORDS);
-
   // Clamp the window up to the frame's nine-patch minimum, so the decoration can never
   // be squeezed into collapse.
   //
@@ -203,7 +200,6 @@ private:
   CHyprSignalListener m_pMouseMoveCallback;
 
   std::string m_szLastTitle;
-  Vector2D m_vLastTitleSize;
 
   bool m_bDraggingThis = false;
   bool m_bTouchEv = false;
@@ -215,9 +211,6 @@ private:
 
   // store hover state for buttons as a bitfield
   unsigned int m_iButtonHoverState = 0;
-
-  // for dynamic updates
-  int m_iLastHeight = 0;
 
   size_t getVisibleButtonCount(const Vector2D &bufferSize, const float scale);
 

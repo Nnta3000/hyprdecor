@@ -12,16 +12,18 @@
 #include "ninepatch.hpp"
 #include "config.hpp"
 
-// Runtime state for a configured SElement: the loaded texture and its natural size.
-// One of the four visual states an element can be in. Every state keeps the geometry of
-// the ACTIVE texture: a hovered variant replaces pixels, never the element's size or
-// place, so a state swap can never make the layout jump.
+/**
+ * One visual state of an element (active, unfocused, hovered, pressed or on).
+ * Every state keeps the geometry of the ACTIVE texture: a variant replaces pixels, never
+ * the element's size or place, so a state swap cannot make the layout jump.
+ */
 struct SElementTexture
 {
     SP<Render::ITexture> tex = makeShared<Render::GL::CGLTexture>();
     SNinePatchInfo       npi;
 };
 
+/** Runtime state of one configured SElement: its textures and natural size. */
 struct SElementTex
 {
     SElement             cfg;
@@ -58,9 +60,7 @@ struct SHyprButton
     std::string pathPressed = "";
 };
 
-// Resolved frame assets and metrics. Today the plugin owns one default frame; every
-// consumer reads it through CPlugin::frame so a decorator can later be pinned to a
-// different theme without touching the drawing code again.
+/** Resolved frame assets and metrics for the default config or one named theme. */
 struct SFrame
 {
     std::string    ninepatch_texture;
@@ -104,11 +104,6 @@ public:
     // Coalesced update: safe to call from a Lua callback or an event handler.
     void requestUpdate();
     void processPendingUpdate();
-
-    // Queues a layout recalculation for the next main-loop tick. Safe to call from
-    // inside a render pass, unlike recalculateMonitor() itself.
-
-    // True once the config manager has committed this plugin's values.
 
     // Shows an on-screen notification (and logs) for a hard configuration error.
     void notifyError(const std::string &message);
@@ -156,12 +151,8 @@ public:
     SFrame frame;
     std::map<std::string, SFrame> themes;
 
-    // Values coming from hl.plugin.hyprdecor.setup(). They take precedence over the
-    // flat plugin:hyprdecor:* config values, because setup() is the structured API.
+    /** True once hl.plugin.hyprdecor.setup() has been applied at least once. */
     bool        setup_applied = false;
-    bool        ninepatch_forceTexture = false;
-    int         setup_border_thickness = -1; // < 0 = keep the flat config value
-    float       setup_border_alpha = -1.F;   // < 0 = keep the flat config value
 
     // Last filesystem problem hit by resolveTexturePath(), if any. Lets the Lua
     // error distinguish "missing" from "permission denied".

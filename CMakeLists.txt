@@ -6,6 +6,7 @@ project(hyprdecor
 )
 
 set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 file(GLOB_RECURSE SRC "src/*.cpp")
 
@@ -58,8 +59,10 @@ install(TARGETS hyprdecor)
 # Standalone tests for the nine-patch core (no Hyprland, no GPU required).
 #   cmake --build build --target ninepatch_test && ./build/ninepatch_test
 # ---------------------------------------------------------------------------
-option(HYPRDECOR_BUILD_TESTS "Build the standalone nine-patch tests" ON)
+option(HYPRDECOR_BUILD_TESTS "Build the standalone pure-logic tests" ON)
 if(HYPRDECOR_BUILD_TESTS)
+    enable_testing()
+
     add_executable(ninepatch_test tests/ninepatch_test.cpp)
     target_include_directories(ninepatch_test PRIVATE src)
     pkg_check_modules(cairo_only REQUIRED IMPORTED_TARGET cairo)
@@ -80,6 +83,17 @@ if(HYPRDECOR_BUILD_TESTS)
     target_include_directories(config_value_test PRIVATE src)
     target_link_libraries(config_value_test PRIVATE PkgConfig::lua_only)
     target_compile_options(config_value_test PRIVATE -Wall -Wextra)
+
+    # Tests colour parsing for window-rule effects (rgba() byte order, trailing garbage).
+    add_executable(colorparse_test tests/colorparse_test.cpp)
+    target_include_directories(colorparse_test PRIVATE src)
+    target_compile_options(colorparse_test PRIVATE -Wall -Wextra)
+
+    # `ctest --test-dir build` runs them all.
+    add_test(NAME ninepatch COMMAND ninepatch_test)
+    add_test(NAME layout COMMAND layout_test)
+    add_test(NAME config_value COMMAND config_value_test)
+    add_test(NAME colorparse COMMAND colorparse_test)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -92,7 +106,9 @@ endif()
 # They read and write images through ImageMagick's `magick` binary rather than linking
 # an image library, so the only requirement is magick being on PATH at run time.
 # ---------------------------------------------------------------------------
-option(HYPRDECOR_BUILD_TOOLS "Build the palette dithering tools" ON)
+# Slated for removal together with the shader path (ROADMAP, commit R1). Off by default so
+# `make all` and hyprpm builds do not compile them.
+option(HYPRDECOR_BUILD_TOOLS "Build the palette dithering tools" OFF)
 if(HYPRDECOR_BUILD_TOOLS)
     add_executable(palette-gen tools/palette_gen.cpp)
     target_include_directories(palette-gen PRIVATE tools)

@@ -328,4 +328,3 @@ struct SConfig
     int applies = 0;
 };
 
-inline SConfig g_config;
