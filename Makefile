@@ -16,4 +16,13 @@ clean:
 install: release
 	cmake --install build
 
-.PHONY: all release debug clean install
+release-patch:
+	./scripts/release.sh patch
+
+release-minor:
+	./scripts/release.sh minor
+
+release-major:
+	./scripts/release.sh major
+
+.PHONY: all release debug clean install release-patch release-minor release-major
