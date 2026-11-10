@@ -1,7 +1,4 @@
 build
 .direnv
 result
-# The orange frame set is local-only: it is derived from third-party artwork and is
-# intentionally not redistributed with the plugin. Keep the credit file tracked.
 /assets/orange/*
-!/assets/orange/CREDITS.md
