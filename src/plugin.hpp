@@ -145,7 +145,6 @@ public:
     int bar_button_padding = 5;
     bool enabled = true;
     std::string on_double_click;
-    std::string retro_shader;
 
     // The default frame. Named themes are resolved into their own SFrame entries.
     SFrame frame;

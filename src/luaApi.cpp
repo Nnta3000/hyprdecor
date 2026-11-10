@@ -513,13 +513,6 @@ static int applySetup(lua_State *L)
             if (CMD)
                 NEXT.onDoubleClick = *CMD;
         }
-        if (hasField(L, BAR, "retro_shader"))
-        {
-            const auto NAME = stringField(L, BAR, "retro_shader");
-            if (NAME)
-                NEXT.retroShader = *NAME;
-        }
-
         lua_pop(L, 1);
     }
 
@@ -713,13 +706,12 @@ static int applySetup(lua_State *L)
                 static const std::map<std::string, SElement::eAction> ACTIONS = {
                     {"close", SElement::eAction::Close},       {"maximize", SElement::eAction::Maximize}, {"fullscreen", SElement::eAction::Fullscreen},
                     {"pin", SElement::eAction::Pin},           {"float", SElement::eAction::Float},       {"minimize", SElement::eAction::Minimize},
-                    {"retro_filter", SElement::eAction::RetroFilter},
                 };
 
                 const auto IT = ACTIONS.find(*ACTION);
                 if (IT == ACTIONS.end())
                     return raise(L, "hyprdecor.setup: 'defaults.elements[{}].action' \"{}\" is not a known action "
-                                    "(close, maximize, fullscreen, pin, float, minimize, retro_filter)", i, *ACTION);
+                                    "(close, maximize, fullscreen, pin, float, minimize)", i, *ACTION);
 
                 E.action = IT->second;
 

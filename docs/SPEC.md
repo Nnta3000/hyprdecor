@@ -218,8 +218,6 @@ folded in at the same time — one number for the whole box, never scaled twice.
   `maximize` and `fullscreen` toggle: a second press restores. They pass only `mode` to
   the dispatcher, letting Hyprland do the state decision — reading the state here and
   choosing set/unset duplicated it and made restore fail.
-  `retro_filter` runs `hyprshade toggle <bar.retro_shader>`; it is the only action that
-  starts a process.
   `drag` and `resize` were dropped: they are pointer GESTURES, not clicks, and the
   decorator swallows the press they need. Hyprland already offers both through
   `SUPER + right-drag` / `SUPER + left-drag` and `general:resize_on_border`, so a

@@ -108,14 +108,6 @@ struct SElement
         // Parks the window on special:min-<its workspace>. Project convention for
         // "minimise"; Hyprland has no native minimised state (see AGENTS.md).
         Minimize,
-        // Runs `hyprshade toggle`, flipping the global screen shader on and off.
-        //
-        // This is the ONE action that runs an external program. Everything else here
-        // asks Hyprland to do something, deliberately (ROADMAP D2), and this exception
-        // exists because a screen shader can only be switched by changing a config value
-        // and then setting the renderer's reload flag -- which hyprshade already knows
-        // how to do, and the plugin has no business duplicating.
-        RetroFilter,
     };
 
     eAction action = eAction::None;
@@ -301,11 +293,6 @@ struct SConfig
     // possible for a decoration that must never cover client pixels.
     bool        renderAbove          = true;
     std::string onDoubleClick;
-
-    // Shader name passed to `hyprshade toggle` by the retro_filter action. hyprshade
-    // resolves bare names against ~/.config/hypr/shaders (and a few other dirs), so this
-    // is a NAME like "palette_dither", not a path.
-    std::string retroShader;
 
     // App icon
     bool     appIconEnabled = false;
