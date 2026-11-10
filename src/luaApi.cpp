@@ -265,7 +265,7 @@ static int applySetup(lua_State *L)
                 return raise(L, "hyprdecor.setup: 'defaults.border.scale' must be a positive integer");
             NEXT.artScale = (int)ART_SCALE;
         }
-        else if (NEXT.defaultScale > 0)
+        else
             // No border-specific scale: inherit the global one.
             NEXT.artScale = NEXT.defaultScale;
 

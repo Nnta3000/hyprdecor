@@ -321,7 +321,7 @@ std::string CPlugin::statusString() const
     out += std::format("  render fallback:   {}\n", frame.activeSurface ? "texture" : "solid bar_color (NO TEXTURE)");
     out += std::format("  offsets L/T/R/B:   {} {} {} {}\n",
                        frame.decoration_offset_left, frame.decoration_offset_top, frame.decoration_offset_right, frame.decoration_offset_bottom);
-    out += std::format("  enabled:           {}\n", enabled ? "yes" : "no");
+    out += std::format("  enabled:           {}\n", cfg.enabled ? "yes" : "no");
     std::string themeList;
     for (const auto &[name, F] : themes)
     {
@@ -453,27 +453,7 @@ void CPlugin::update()
     // nullable config pointers left, so no fallback dance and no uninitialised state.
     const SConfig &C = cfg;
 
-    enabled = C.enabled;
 
-    bar_color             = CHyprColor(C.barColor);
-    col_text              = CHyprColor(C.textColor);
-    bar_text_font         = C.titleFont;
-    bar_text_font_unfocused = C.titleFontUnfocused.empty() ? C.titleFont : C.titleFontUnfocused;
-    decoration_title_size = C.titleSize;
-    decoration_title_enabled = C.titleEnabled;
-    decoration_title_placement = C.titlePlacement;
-    bar_blur                 = C.blur;
-    bar_part_of_window       = C.partOfWindow;
-    bar_precedence_over_border = C.precedenceOverBorder;
-    decoration_padding       = C.padding;
-    decoration_appicon_enabled = C.appIconEnabled;
-    decoration_appicon_offset  = {C.appIconOffsetX, C.appIconOffsetY};
-    decoration_render_above    = C.renderAbove;
-    ninepatch_linear_filtering = C.linearFiltering;
-    ninepatch_repeat           = C.repeat;
-    bar_outline_color          = CHyprColor(C.outlineColor);
-    bar_outline_width          = C.outlineWidth;
-    bar_outline_always         = C.outlineAlways;
 
     // Build the default frame and every named theme from the same resolver.
     destroyFrame(frame);

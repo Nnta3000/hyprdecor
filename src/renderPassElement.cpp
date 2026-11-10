@@ -39,9 +39,9 @@ bool CRenderPassElement::needsLiveBlur([[maybe_unused]] Render::CRenderContext &
     if (!*(const bool *)*REPLY.dataptr)
         return false;
 
-    CHyprColor color = data.deco->m_bForcedBarColor.value_or(gPlugin->bar_color);
+    CHyprColor color = data.deco->m_bForcedBarColor.value_or(CHyprColor(gPlugin->cfg.barColor));
     color.a *= data.a;
-    return gPlugin->bar_blur && color.a < 1.F;
+    return gPlugin->cfg.blur && color.a < 1.F;
 }
 
 std::optional<CBox> CRenderPassElement::boundingBox(Render::CRenderContext &ctx)

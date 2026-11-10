@@ -111,7 +111,7 @@ CHyprWindowDecorator::CHyprWindowDecorator(PHLWINDOW pWindow) : IHyprWindowDecor
     m_pAppIconTex = makeShared<Render::GL::CGLTexture>();
     m_pBarFinalTex = makeShared<Render::GL::CGLTexture>();
 
-    Animation::mgr()->createAnimation(gPlugin->bar_color, m_cRealBarColor, Config::animationTree()->getAnimationPropertyConfig("border"), pWindow, AVARDAMAGE_NONE);
+    Animation::mgr()->createAnimation(CHyprColor(gPlugin->cfg.barColor), m_cRealBarColor, Config::animationTree()->getAnimationPropertyConfig("border"), pWindow, AVARDAMAGE_NONE);
     m_cRealBarColor->setUpdateCallback([&](auto)
                                        { damageEntire(); });
 }
@@ -132,7 +132,7 @@ const SFrame &CHyprWindowDecorator::frame() const
 
 SBoxExtents CHyprWindowDecorator::currentExtents() const
 {
-    if (!gPlugin->enabled || m_hidden)
+    if (!gPlugin->cfg.enabled || m_hidden)
         return {{0, 0}, {0, 0}};
 
     // Reserved space = frame art thickness + the user's inset. The nine-patch is
@@ -153,7 +153,7 @@ SDecorationPositioningInfo CHyprWindowDecorator::getPositioningInfo()
     // strip of geometry (a title bar) instead of a rectangle around the window.
     info.policy = DECORATION_POSITION_ABSOLUTE;
     info.edges = DECORATION_EDGE_TOP | DECORATION_EDGE_BOTTOM | DECORATION_EDGE_LEFT | DECORATION_EDGE_RIGHT;
-    info.priority = gPlugin->bar_precedence_over_border ? 10005 : 5000;
+    info.priority = gPlugin->cfg.precedenceOverBorder ? 10005 : 5000;
     // Always reserve: the frame surrounds the window, and `inset` is real space, not a
     // switch. (The old decoration_inset flag meant "reserve nothing".)
     info.reserved = true;
@@ -198,7 +198,7 @@ std::string CHyprWindowDecorator::getDisplayName()
 
 bool CHyprWindowDecorator::inputIsValid()
 {
-    if (!gPlugin->enabled)
+    if (!gPlugin->cfg.enabled)
         return false;
 
     // Pointer/touch events are global listeners; the window they refer to can already
@@ -338,7 +338,7 @@ void CHyprWindowDecorator::onMouseMove([[maybe_unused]] Vector2D coords)
 // caller that forgot it (the cursor did) reported edges a couple of pixels too wide.
 const char *CHyprWindowDecorator::resizeEdgeAt(Vector2D COORDS)
 {
-    const double SC = gPlugin->cfg.defaultScale > 0 ? (double)gPlugin->cfg.defaultScale : 1.0;
+    const double SC = (double)gPlugin->cfg.defaultScale;
     const double W  = gPlugin->cfg.resizeGrabWidth * SC;
     if (W <= 0)
         return nullptr;
@@ -378,7 +378,7 @@ const char *CHyprWindowDecorator::resizeEdgeAt(Vector2D COORDS)
 // will repaint its own answer on the next move.
 void CHyprWindowDecorator::applyResizeCursor()
 {
-    if (!gPlugin->enabled || !validMapped(m_pWindow) || !Pointer::Cursor::overrideController)
+    if (!gPlugin->cfg.enabled || !validMapped(m_pWindow) || !Pointer::Cursor::overrideController)
         return;
 
     // Never fight a real resize/drag in progress.
@@ -777,14 +777,14 @@ void CHyprWindowDecorator::draw(Render::CRenderContext &ctx, PHLMONITOR pMonitor
     // itself must stay true until renderPass() has rebuilt the textures, otherwise the
     // frame would never update. Previously nothing cleared the request, so once it was
     // set, repositionDeco() ran every frame.
-    if (m_bLastEnabledState != gPlugin->enabled || m_bNeedsReposition)
+    if (m_bLastEnabledState != gPlugin->cfg.enabled || m_bNeedsReposition)
     {
-        m_bLastEnabledState = gPlugin->enabled;
+        m_bLastEnabledState = gPlugin->cfg.enabled;
         m_bNeedsReposition = false;
         g_pDecorationPositioner->repositionDeco(this);
     }
 
-    if (m_hidden || !validMapped(m_pWindow) || !gPlugin->enabled)
+    if (m_hidden || !validMapped(m_pWindow) || !gPlugin->cfg.enabled)
         return;
 
     const auto PWINDOW = m_pWindow.lock();
@@ -831,14 +831,14 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
         }
     }
 
-    const CHyprColor DEST_COLOR = m_bForcedBarColor.value_or(gPlugin->bar_color);
+    const CHyprColor DEST_COLOR = m_bForcedBarColor.value_or(CHyprColor(gPlugin->cfg.barColor));
     if (DEST_COLOR != m_cRealBarColor->goal())
         *m_cRealBarColor = DEST_COLOR;
 
     CHyprColor color = m_cRealBarColor->value();
 
     color.a *= a;
-    const bool SHOULDBLUR = gPlugin->bar_blur && color.a < 1.F;
+    const bool SHOULDBLUR = gPlugin->cfg.blur && color.a < 1.F;
 
     // Only window rounding matters here: the stencil path below masks out the window
     // area so the frame does not paint over the client surface. Including the border
@@ -1112,12 +1112,12 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
 
     // Plain solid outline, drawn on top of whatever was rendered above.
     // `bar_outline_always = false` restricts it to the no-texture fallback.
-    if (gPlugin->bar_outline_width > 0 && (gPlugin->bar_outline_always || !sourceSurface))
+    if (gPlugin->cfg.outlineWidth > 0 && (gPlugin->cfg.outlineAlways || !sourceSurface))
     {
-        CHyprColor outlineColor = gPlugin->bar_outline_color;
+        CHyprColor outlineColor = CHyprColor(gPlugin->cfg.outlineColor);
         outlineColor.a *= a;
 
-        const double THICK = std::max(1.0, (double)std::round(gPlugin->bar_outline_width * pMonitor->m_scale));
+        const double THICK = std::max(1.0, (double)std::round(gPlugin->cfg.outlineWidth * pMonitor->m_scale));
         const CBox &B = titleBarBox;
 
         Render::GL::CHyprOpenGLImpl::SRectRenderData RECTDATA;
@@ -1150,12 +1150,12 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
                         LOGTITLEBOX.h * TITLEM};
 
     // render app icon
-    if (gPlugin->decoration_appicon_enabled)
+    if (gPlugin->cfg.appIconEnabled)
     {
         std::string appId = PWINDOW->metadata().initialAppID();
 
         int iconSizeDesired = (int)(std::max(topBarBox.width, topBarBox.height) * 0.6); // Reasonable size check
-        if (gPlugin->decoration_title_placement == "top" || gPlugin->decoration_title_placement == "bottom")
+        if (gPlugin->cfg.titlePlacement == "top" || gPlugin->cfg.titlePlacement == "bottom")
             iconSizeDesired = (int)(topBarBox.height * 0.6);
         else
             iconSizeDesired = (int)(topBarBox.width * 0.6);
@@ -1178,15 +1178,15 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
             int iconPad;
             CBox iconBox;
             const auto ATEXSIZE = m_pAppIconTex->m_size;
-            if (gPlugin->decoration_title_placement == "top" || gPlugin->decoration_title_placement == "bottom")
+            if (gPlugin->cfg.titlePlacement == "top" || gPlugin->cfg.titlePlacement == "bottom")
             {
                 iconPad = (int)std::round(topBarBox.height * 0.2);
-                iconBox = {topBarBox.x + iconPad + gPlugin->decoration_appicon_offset.x * pMonitor->m_scale, topBarBox.y + (int)std::round((topBarBox.height - ATEXSIZE.y) / 2.0) + gPlugin->decoration_appicon_offset.y * pMonitor->m_scale, ATEXSIZE.x, ATEXSIZE.y};
+                iconBox = {topBarBox.x + iconPad + gPlugin->cfg.appIconOffsetX * pMonitor->m_scale, topBarBox.y + (int)std::round((topBarBox.height - ATEXSIZE.y) / 2.0) + gPlugin->cfg.appIconOffsetY * pMonitor->m_scale, ATEXSIZE.x, ATEXSIZE.y};
             }
             else
             {
                 iconPad = (int)std::round(topBarBox.width * 0.2);
-                iconBox = {topBarBox.x + (int)std::round((topBarBox.width - ATEXSIZE.x) / 2.0) + gPlugin->decoration_appicon_offset.x * pMonitor->m_scale, topBarBox.y + iconPad + gPlugin->decoration_appicon_offset.y * pMonitor->m_scale, ATEXSIZE.x, ATEXSIZE.y};
+                iconBox = {topBarBox.x + (int)std::round((topBarBox.width - ATEXSIZE.x) / 2.0) + gPlugin->cfg.appIconOffsetX * pMonitor->m_scale, topBarBox.y + iconPad + gPlugin->cfg.appIconOffsetY * pMonitor->m_scale, ATEXSIZE.x, ATEXSIZE.y};
             }
             Render::GL::CHyprOpenGLImpl::STextureRenderData data;
             data.a = a;
@@ -1202,7 +1202,7 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
     // not. TITLEBOX is already in device px, matching the texture size.
     const Vector2D TEXTWANT{(double)TITLEBOX.width, (double)TITLEBOX.height};
 
-    if (gPlugin->decoration_title_enabled &&
+    if (gPlugin->cfg.titleEnabled &&
         (m_szLastTitle != PWINDOW->metadata().title() || m_bWindowSizeChanged || m_pTextTex->m_texID == 0 || m_bTitleColorChanged || m_bForceTitleRerender || m_pTextTex->m_size != TEXTWANT))
     {
         m_szLastTitle = PWINDOW->metadata().title();
@@ -1219,7 +1219,7 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
         glStencilFunc(GL_ALWAYS, 1, 0xFF);
     }
 
-    if (gPlugin->decoration_title_enabled)
+    if (gPlugin->cfg.titleEnabled)
     {
         // Background and text share the SAME box, so they cannot drift apart: the
         // backdrop is derived from titleBox(), never positioned independently.
@@ -1430,12 +1430,12 @@ eDecorationLayer CHyprWindowDecorator::getDecorationLayer()
     // over the frame's inner edge and over any item that overlapped the client area,
     // which made `inset` look broken. OVER (not OVERLAY) keeps the window's own popups
     // and menus above the frame.
-    return gPlugin->decoration_render_above ? DECORATION_LAYER_OVER : DECORATION_LAYER_UNDER;
+    return gPlugin->cfg.renderAbove ? DECORATION_LAYER_OVER : DECORATION_LAYER_UNDER;
 }
 
 uint64_t CHyprWindowDecorator::getDecorationFlags()
 {
-    return DECORATION_ALLOWS_MOUSE_INPUT | (gPlugin->bar_part_of_window ? DECORATION_PART_OF_MAIN_WINDOW : 0);
+    return DECORATION_ALLOWS_MOUSE_INPUT | (gPlugin->cfg.partOfWindow ? DECORATION_PART_OF_MAIN_WINDOW : 0);
 }
 
 CBox CHyprWindowDecorator::assignedBoxGlobal()

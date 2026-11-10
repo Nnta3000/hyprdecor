@@ -112,21 +112,6 @@ public:
     // The whole configuration, filled by hl.plugin.hyprdecor.setup().
     SConfig cfg;
 
-    CHyprColor bar_color = CHyprColor(0.2F, 0.2F, 0.2F, 0.53F);
-    CHyprColor col_text = CHyprColor(1, 1, 1, 1);
-    int decoration_title_size = 10;
-    bool decoration_title_enabled = true;
-    bool bar_blur = false;
-    std::string bar_text_font = "Sans";
-    // Empty means "same as bar_text_font": plugin.cpp resolves the fallback when the
-    // configuration is applied, so renderBarTitle always has a usable name.
-    std::string bar_text_font_unfocused;
-    std::string decoration_title_placement = "top";
-    bool bar_part_of_window = true;
-    bool bar_precedence_over_border = false;
-    int decoration_padding = 7;
-    bool enabled = true;
-
     // The default frame. Named themes are resolved into their own SFrame entries.
     SFrame frame;
     std::map<std::string, SFrame> themes;
@@ -145,14 +130,6 @@ public:
     int  lastBarW = 0;
     int  lastBarH = 0;
     bool lastDrawn = false;
-    bool ninepatch_linear_filtering = true;
-    bool ninepatch_repeat = false;
-    bool decoration_appicon_enabled = true;
-    bool decoration_render_above = false;
-    CHyprColor bar_outline_color = CHyprColor(1, 1, 1, 1);
-    int bar_outline_width = 1;
-    bool bar_outline_always = true;
-    Vector2D decoration_appicon_offset;
 
     HANDLE m_pHandle = nullptr;
     std::vector<SElementTex> m_vElements;
