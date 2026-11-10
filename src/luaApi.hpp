@@ -5,21 +5,29 @@
 // Registers hl.plugin.hyprdecor.<name> callbacks via HyprlandAPI::addLuaFunction.
 // Built against Lua 5.5, the runtime Hyprland itself links (see ROADMAP.md).
 
+#include "config.hpp"
+
+#include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 struct lua_State;
 
 namespace Hyprdecor::Lua {
-    // Reads a struct field. Returns nullptr when absent or not a string.
-    // Returns the field value, or nullopt when absent / not a string.
+    // `stringField`, `boolField` and `numberField` return the fallback only when the key is
+    // absent. A key that is present with the wrong type throws SSetupError (ROADMAP D8).
     std::optional<std::string> stringField(lua_State *L, int tableIdx, const char *key);
     double      numberField(lua_State *L, int tableIdx, const char *key, double fallback);
-
-    // Accepts a Lua boolean OR a number (0/1), so both `enabled = true` and
-    // `enabled = 1` work. numberField() rejects booleans, which silently made every
-    // boolean option fall back to its default.
     bool        boolField(lua_State *L, int tableIdx, const char *key, bool fallback);
+
+    // Texture resolution is injected so parsing has no gPlugin/Hyprland dependency.
+    struct SParseContext
+    {
+        std::function<std::string(const std::string &, const std::vector<std::string> &)> resolveTexture;
+    };
+
+    SConfig parseSetup(lua_State *L, const SParseContext &CTX);
 
     // Pushes t[key] when it is a table and returns true (caller must pop).
     // Raises a Lua error when the field exists but is not a table.

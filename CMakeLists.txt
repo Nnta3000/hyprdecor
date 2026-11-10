@@ -86,9 +86,16 @@ if(HYPRDECOR_BUILD_TESTS)
     target_include_directories(colorparse_test PRIVATE src)
     target_compile_options(colorparse_test PRIVATE -Wall -Wextra)
 
+    # Tests the pure strict parser against a real Lua 5.5 state. No Hyprland symbols.
+    add_executable(lua_parse_test tests/lua_parse_test.cpp src/luaParse.cpp)
+    target_include_directories(lua_parse_test PRIVATE src)
+    target_link_libraries(lua_parse_test PRIVATE PkgConfig::lua_only)
+    target_compile_options(lua_parse_test PRIVATE -Wall -Wextra)
+
     # `ctest --test-dir build` runs them all.
     add_test(NAME ninepatch COMMAND ninepatch_test)
     add_test(NAME layout COMMAND layout_test)
     add_test(NAME config_value COMMAND config_value_test)
     add_test(NAME colorparse COMMAND colorparse_test)
+    add_test(NAME lua_parse COMMAND lua_parse_test)
 endif()
