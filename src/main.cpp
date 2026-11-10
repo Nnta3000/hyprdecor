@@ -17,6 +17,7 @@
 #include "plugin.hpp"
 #include "compat.hpp"
 #include "luaApi.hpp"
+#include "hyprdecor_version.hpp"
 
 // Do NOT change this function.
 APICALL EXPORT std::string PLUGIN_API_VERSION()

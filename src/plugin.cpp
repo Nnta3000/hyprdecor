@@ -3,6 +3,7 @@
 #include "compat.hpp"
 #include "hyprWindowDecorator.hpp"
 #include "util.hpp"
+#include "hyprdecor_version.hpp"
 #include <hyprland/src/config/ConfigManager.hpp>
 #include <filesystem>
 #include <sys/stat.h>
