@@ -1682,33 +1682,14 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
                 // The grid was already resolved by the layout pass; only the scale to
                 // device pixels remains. Recomputing it here is how the caps started
                 // disagreeing with what was drawn.
-                const double SRCW = element.naturalSize.x;
-                const double SRCH = element.naturalSize.y;
-
-                const auto GRID = NinePatch::layout(STATE.npi, SRCW, SRCH, item.rect.w, item.rect.h, item.artScale,
+                const auto GRID = NinePatch::layout(STATE.npi, element.naturalSize.x, element.naturalSize.y, item.rect.w, item.rect.h, item.artScale,
                                                     element.cfg.maxStretch.value_or(-1), element.cfg.stretchVertical ? element.cfg.maxStretch.value_or(-1) : 0,
                                                     element.cfg.minStretch.value_or(-1), element.cfg.stretchVertical ? element.cfg.minStretch.value_or(-1) : 0);
 
                 const double X = titleBarBox.x + item.rect.x * M;
                 const double Y = titleBarBox.y + item.rect.y * M;
 
-                for (int gi = 0; gi < 3; ++gi)
-                    for (int gj = 0; gj < 3; ++gj)
-                    {
-                        const double SW = GRID.sx[gi + 1] - GRID.sx[gi];
-                        const double SH = GRID.sy[gj + 1] - GRID.sy[gj];
-                        const double DW = GRID.dx[gi + 1] - GRID.dx[gi];
-                        const double DH = GRID.dy[gj + 1] - GRID.dy[gj];
-                        if (SW <= 0 || SH <= 0 || DW <= 0 || DH <= 0)
-                            continue;
-
-                        auto cellData = edata;
-                        cellData.allowCustomUV               = true;
-                        cellData.primarySurfaceUVTopLeft     = Vector2D(GRID.sx[gi] / SRCW, GRID.sy[gj] / SRCH);
-                        cellData.primarySurfaceUVBottomRight = Vector2D(GRID.sx[gi + 1] / SRCW, GRID.sy[gj + 1] / SRCH);
-
-                        Render::GL::g_pHyprOpenGL->renderTexture(ctx, STATE.tex, CBox{X + GRID.dx[gi] * M, Y + GRID.dy[gj] * M, DW * M, DH * M}, cellData);
-                    }
+                drawNinePatch(ctx, STATE.tex, GRID, element.naturalSize, {X, Y}, M, edata);
             }
             else
             {
@@ -1850,23 +1831,7 @@ void CHyprWindowDecorator::renderPass(Render::CRenderContext &ctx, PHLMONITOR pM
             Render::GL::CHyprOpenGLImpl::STextureRenderData bgData;
             bgData.a = a;
 
-            for (int gi = 0; gi < 3; ++gi)
-                for (int gj = 0; gj < 3; ++gj)
-                {
-                    const double SW = GRID.sx[gi + 1] - GRID.sx[gi];
-                    const double SH = GRID.sy[gj + 1] - GRID.sy[gj];
-                    const double DW = GRID.dx[gi + 1] - GRID.dx[gi];
-                    const double DH = GRID.dy[gj + 1] - GRID.dy[gj];
-                    if (SW <= 0 || SH <= 0 || DW <= 0 || DH <= 0)
-                        continue;
-
-                    auto cell = bgData;
-                    cell.allowCustomUV                   = true;
-                    cell.primarySurfaceUVTopLeft         = Vector2D(GRID.sx[gi] / gPlugin->m_titleBgSize.x, GRID.sy[gj] / gPlugin->m_titleBgSize.y);
-                    cell.primarySurfaceUVBottomRight     = Vector2D(GRID.sx[gi + 1] / gPlugin->m_titleBgSize.x, GRID.sy[gj + 1] / gPlugin->m_titleBgSize.y);
-
-                    Render::GL::g_pHyprOpenGL->renderTexture(ctx, BGTEX, CBox{TITLEBOX.x + GRID.dx[gi], TITLEBOX.y + GRID.dy[gj], DW, DH}, cell);
-                }
+            drawNinePatch(ctx, BGTEX, GRID, gPlugin->m_titleBgSize, {TITLEBOX.x, TITLEBOX.y}, 1.0, bgData);
         }
 
         if (HASROOM && m_pTextTex->m_texID)
