@@ -31,6 +31,11 @@ public:
   // Resolves the window's theme from the rule effect or the plugin-side class rules.
   std::string ruleTheme() const;
 
+  // The effect string of a registered window-rule effect, or nullopt when the rule is
+  // not present on this window. One reader for every effect, so presence and value are
+  // checked the same way everywhere.
+  std::optional<std::string> ruleEffect(uint32_t idx) const;
+
   virtual void onPositioningReply(const SDecorationPositioningReply &reply);
 
   virtual void draw(Render::CRenderContext &ctx, PHLMONITOR, float const &a, const Render::SWindowRenderPresentation &presentation);

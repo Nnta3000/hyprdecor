@@ -11,6 +11,7 @@
 
 #include "itemstate.hpp"
 
+#include <algorithm>
 #include <map>
 #include <optional>
 #include <string>
@@ -26,6 +27,18 @@ struct SFrameThickness
 
     bool   allSet() const { return left >= 0 && top >= 0 && right >= 0 && bottom >= 0; }
 };
+
+// Per-side override used when a named theme is resolved over the default config: a
+// theme side is authoritative only when it is set (>= 0).
+namespace Sides {
+inline SFrameThickness over(const SFrameThickness &higher, const SFrameThickness &base)
+{
+    return {higher.left >= 0 ? higher.left : base.left,
+            higher.top >= 0 ? higher.top : base.top,
+            higher.right >= 0 ? higher.right : base.right,
+            higher.bottom >= 0 ? higher.bottom : base.bottom};
+}
+} // namespace Sides
 
 // A plain image drawn at a fixed place inside the frame band. No hit-testing, no
 // action: this is the primitive for art like an eye, a title background or a button
@@ -182,6 +195,10 @@ struct SConfig
     // `scale` can be distinguished from "inherit". Resolved at setup() time, not at
     // draw time, so the layout pass always sees a concrete number.
     int defaultScale = 1;
+
+    // `defaults.scale` as a multiplier. Kept in one place so every distance, offset and
+    // text size reads the same clamped value instead of re-deriving it.
+    double scale() const { return (double)std::max(1, defaultScale); }
 
     bool   linearFiltering = true;
     bool   repeat          = false;

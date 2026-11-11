@@ -338,7 +338,7 @@ void CHyprWindowDecorator::onMouseMove([[maybe_unused]] Vector2D coords)
 // caller that forgot it (the cursor did) reported edges a couple of pixels too wide.
 const char *CHyprWindowDecorator::resizeEdgeAt(Vector2D COORDS)
 {
-    const double SC = (double)gPlugin->cfg.defaultScale;
+    const double SC = gPlugin->cfg.scale();
     const double W  = gPlugin->cfg.resizeGrabWidth * SC;
     if (W <= 0)
         return nullptr;
@@ -902,7 +902,7 @@ CBox CHyprWindowDecorator::titleBoxPlaced(const CBox &band, const float scale) c
 
     // 2. Position from the anchor. Offsets are art units, so they follow defaults.scale.
     (void)scale;
-    const double OS = (double)gPlugin->cfg.defaultScale;
+    const double OS = gPlugin->cfg.scale();
     const auto R = TitleBox::layoutPlaced(band.x, band.y, band.width, band.height, w, h, (TitleBox::eAnchor)C.titleAnchor, C.titleOffsetX * OS,
                                           C.titleOffsetY * OS);
 
@@ -923,7 +923,7 @@ Layout::SFrameMetrics CHyprWindowDecorator::frameMetrics()
     //
     // The reserved extents (decoration_offset_*) are already scaled at resolve time from
     // the nine-patch, so they are NOT multiplied again here.
-    const double S = (double)gPlugin->cfg.defaultScale;
+    const double S = gPlugin->cfg.scale();
 
     Layout::SFrameMetrics m;
     m.left          = frame().decoration_offset_left;
@@ -973,14 +973,14 @@ std::vector<Layout::SItemSpec> CHyprWindowDecorator::itemSpecs()
         // defaults.scale -- otherwise a scaled icon sits at an unscaled offset and the row
         // drifts apart. `scale` below stays the ART multiplier (which a per-element value
         // may override); spacing is always global.
-        const double S = (double)gPlugin->cfg.defaultScale;
+        const double S = gPlugin->cfg.scale();
 
         s.align           = ELEMENT.cfg.anchor == SElement::eAnchor::TopRight ? Layout::eAlign::End : Layout::eAlign::Start;
         s.offsetX         = ELEMENT.cfg.offsetX * S;
         s.offsetY         = ELEMENT.cfg.offsetY * S;
         s.w               = ELEMENT.cfg.width > 0 ? ELEMENT.cfg.width * S : ELEMENT.cfg.width;
         s.h               = ELEMENT.cfg.height > 0 ? ELEMENT.cfg.height * S : ELEMENT.cfg.height;
-        s.scale           = (double)ELEMENT.cfg.scale.value_or(gPlugin->cfg.defaultScale > 0 ? gPlugin->cfg.defaultScale : 1);
+        s.scale           = (double)ELEMENT.cfg.scale.value_or((int)gPlugin->cfg.scale());
         s.srcW            = ELEMENT.naturalSize.x;
         s.srcH            = ELEMENT.naturalSize.y;
         s.ninepatch       = ELEMENT.cfg.ninepatch;
@@ -1063,7 +1063,7 @@ Layout::SResult CHyprWindowDecorator::resolveLayout()
         t.weight      = 1;
         // Title spacing and any fixed height are art units too, so they follow
         // defaults.scale like every other distance in the frame.
-        const double TS = (double)gPlugin->cfg.defaultScale;
+        const double TS = gPlugin->cfg.scale();
         t.h           = C.titleHeight > 0 ? C.titleHeight * TS : C.titleHeight; // <= 0 = the full band height
         t.marginLeft  = C.titleMarginLeft * TS;
         t.marginRight = C.titleMarginRight * TS;
@@ -1248,7 +1248,7 @@ void CHyprWindowDecorator::renderBarTitle([[maybe_unused]] Render::CRenderContex
     // fonts are drawn on a 1/16-em grid: every outline coordinate is a multiple of
     // 64/1024 em, and the advance is 7/16 em, the cap height 9/16 em, the stem 1/16 em.
     // Snapping the em to a multiple of 16 device px makes all of those whole pixels.
-    const double ART        = (double)gPlugin->cfg.defaultScale;
+    const double ART        = gPlugin->cfg.scale();
     const double WANTED     = gPlugin->cfg.titleSize * ART * scale;
     const int    emPx       = std::max(16, (int)std::round(WANTED / 16.0) * 16);
 
@@ -1371,7 +1371,7 @@ void CHyprWindowDecorator::renderBarTitle([[maybe_unused]] Render::CRenderContex
     // (origin at the top of the laid-out line, offset 0 by default); "font" puts the
     // origin on the declared font's baseline. baseline_offset is a nudge for the pixel
     // fonts whose ink sits off their nominal metrics, and applies to both.
-    const double TOFF    = ((double)gPlugin->cfg.defaultScale) * M;
+    const double TOFF    = gPlugin->cfg.scale() * M;
     const int    xOffset = (int)std::round(INSET + (maxWidth - (float)layoutWidth / PANGO_SCALE) * align + gPlugin->cfg.textOffsetX * TOFF);
     const double yOrigin = lineTop + (gPlugin->cfg.titleBaselineOffset + gPlugin->cfg.textOffsetY) * TOFF;
 
@@ -2088,19 +2088,28 @@ PHLWINDOW CHyprWindowDecorator::getOwner()
     return m_pWindow.lock();
 }
 
-std::string CHyprWindowDecorator::ruleTheme() const
+std::optional<std::string> CHyprWindowDecorator::ruleEffect(uint32_t idx) const
 {
     const auto PWINDOW = m_pWindow.lock();
     if (!PWINDOW || !PWINDOW->m_ruleApplicator)
-        return "";
+        return std::nullopt;
 
     const auto &PROPS = PWINDOW->m_ruleApplicator->m_otherProps.props;
-    if (PROPS.contains(gPlugin->m_themeRuleIdx))
-    {
-        const std::string THEME = PROPS.at(gPlugin->m_themeRuleIdx)->effect;
-        if (!THEME.empty())
-            return THEME;
-    }
+    const auto  IT    = PROPS.find(idx);
+    if (IT == PROPS.end() || !IT->second)
+        return std::nullopt;
+
+    return IT->second->effect;
+}
+
+std::string CHyprWindowDecorator::ruleTheme() const
+{
+    if (const auto EFFECT = ruleEffect(gPlugin->m_themeRuleIdx); EFFECT && !EFFECT->empty())
+        return *EFFECT;
+
+    const auto PWINDOW = m_pWindow.lock();
+    if (!PWINDOW)
+        return "";
 
     const auto APPID = PWINDOW->metadata().initialAppID();
     for (const auto &RULE : gPlugin->cfg.rules)
@@ -2131,8 +2140,7 @@ void CHyprWindowDecorator::updateRules()
 {
     // window.updateRules can arrive after the window has gone away; there is nothing
     // left to read the rules from in that case.
-    const auto PWINDOW = m_pWindow.lock();
-    if (!PWINDOW)
+    if (!m_pWindow.lock())
         return;
 
     auto prevHidden = m_hidden;
@@ -2142,17 +2150,12 @@ void CHyprWindowDecorator::updateRules()
     m_bForcedTitleColor = std::nullopt;
     m_hidden = false;
 
-    if (PWINDOW->m_ruleApplicator)
-    {
-        const auto &PROPS = PWINDOW->m_ruleApplicator->m_otherProps.props;
-
-        if (PROPS.contains(gPlugin->m_nobarRuleIdx))
-            m_hidden = truthy(PROPS.at(gPlugin->m_nobarRuleIdx)->effect);
-        if (PROPS.contains(gPlugin->m_barColorRuleIdx))
-            m_bForcedBarColor = parseEffectColor(PROPS.at(gPlugin->m_barColorRuleIdx)->effect, "hyprdecor:bar_color");
-        if (PROPS.contains(gPlugin->m_titleColorRuleIdx))
-            m_bForcedTitleColor = parseEffectColor(PROPS.at(gPlugin->m_titleColorRuleIdx)->effect, "hyprdecor:title_color");
-    }
+    if (const auto EFFECT = ruleEffect(gPlugin->m_nobarRuleIdx))
+        m_hidden = truthy(*EFFECT);
+    if (const auto EFFECT = ruleEffect(gPlugin->m_barColorRuleIdx))
+        m_bForcedBarColor = parseEffectColor(*EFFECT, "hyprdecor:bar_color");
+    if (const auto EFFECT = ruleEffect(gPlugin->m_titleColorRuleIdx))
+        m_bForcedTitleColor = parseEffectColor(*EFFECT, "hyprdecor:title_color");
 
     if (prevHidden != m_hidden)
         g_pDecorationPositioner->repositionDeco(this);
