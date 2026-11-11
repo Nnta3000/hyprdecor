@@ -148,6 +148,41 @@ inline bool loadNinePatchTexture(const std::string &path, const SP<Render::IText
     return true;
 }
 
+// Draws a resolved nine-patch grid with the GL renderer, one quad per cell. The element
+// items and the title backdrop both use this: they had the same UV and cell loop, and
+// keeping two copies is how their rounding could drift apart.
+//
+// `srcSize` is the source texture size the grid indexes. `dstOrigin` and `dstScale`
+// convert layout units to device pixels: elements pass the monitor scale, the title
+// backdrop passes 1 because its grid is already in device units.
+inline void drawNinePatch(Render::CRenderContext &ctx, const SP<Render::ITexture> &tex, const NinePatch::SLayout &grid, const Vector2D &srcSize,
+                          const Vector2D &dstOrigin, double dstScale, const Render::GL::CHyprOpenGLImpl::STextureRenderData &baseData)
+{
+    if (!tex || srcSize.x <= 0 || srcSize.y <= 0)
+        return;
+
+    for (int gi = 0; gi < 3; ++gi)
+    {
+        for (int gj = 0; gj < 3; ++gj)
+        {
+            const double SW = grid.sx[gi + 1] - grid.sx[gi];
+            const double SH = grid.sy[gj + 1] - grid.sy[gj];
+            const double DW = grid.dx[gi + 1] - grid.dx[gi];
+            const double DH = grid.dy[gj + 1] - grid.dy[gj];
+            if (SW <= 0 || SH <= 0 || DW <= 0 || DH <= 0)
+                continue;
+
+            auto cell = baseData;
+            cell.allowCustomUV               = true;
+            cell.primarySurfaceUVTopLeft     = Vector2D(grid.sx[gi] / srcSize.x, grid.sy[gj] / srcSize.y);
+            cell.primarySurfaceUVBottomRight = Vector2D(grid.sx[gi + 1] / srcSize.x, grid.sy[gj + 1] / srcSize.y);
+
+            Render::GL::g_pHyprOpenGL->renderTexture(ctx, tex,
+                                                     CBox{dstOrigin.x + grid.dx[gi] * dstScale, dstOrigin.y + grid.dy[gj] * dstScale, DW * dstScale, DH * dstScale}, cell);
+        }
+    }
+}
+
 inline void loadTexture(std::string path, SP<Render::ITexture> &out, bool linear = true, int targetSize = 0)
 {
     if (path.empty() || out->m_texID != 0)
