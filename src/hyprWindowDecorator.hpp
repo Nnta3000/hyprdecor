@@ -163,11 +163,11 @@ private:
   Vector2D m_vLastMinSizeClampSize = {-1, -1};
   Vector2D m_vLastMinSizeClampMin  = {-1, -1};
 
-  // Resize CURSOR over the band. Hyprland's own setCursorIconOnBorder() measures a band
-  // around the CLIENT surface and skips any point inside a decoration, so it never shows
-  // the resize icon on the frame. These re-apply it for the band, after Hyprland's pass,
-  // and mask the client-edge band where Hyprland still paints a resize cursor that this
-  // decoration cannot act on.
+  // Frame CURSOR and resize cursor. Hyprland's own setCursorIconOnBorder() measures a
+  // band around the CLIENT surface and skips any point inside a decoration, so it never
+  // shows the resize icon on the frame. These re-apply it for the band, after Hyprland's
+  // pass, mask the client-edge band where Hyprland still paints a resize cursor that this
+  // decoration cannot act on, and show `grab`/`grabbing` on the rest of the frame.
   void requestResizeCursorUpdate();
   void applyResizeCursor();
   // Which resize edge COORDS is on ("left_side", "top_left_corner", ...) or nullptr.

@@ -459,6 +459,12 @@ void CHyprWindowDecorator::applyResizeCursor()
         INCLIENT &&
         ((L > 0 && COORDS.x < L + MASK) || (R > 0 && COORDS.x >= L + CW - MASK) || (T > 0 && COORDS.y < T + MASK) || (B > 0 && COORDS.y >= T + CH - MASK));
 
+    // Everything left in the frame drags the window. Show that explicitly: the rest of
+    // the frame used to keep the arrow, which made a tiny grab strip indistinguishable
+    // from dead space. `grabbing` while the drag is active also makes it obvious whether
+    // the press actually armed the drag.
+    const bool GRABBABLE = !ONITEM && !SHAPE && isPointOnBar(COORDS);
+
     if (SHAPE)
     {
         Pointer::Cursor::overrideController->setOverride(SHAPE, Pointer::Cursor::CURSOR_OVERRIDE_WINDOW_EDGE);
@@ -467,6 +473,11 @@ void CHyprWindowDecorator::applyResizeCursor()
     else if (ONCLIENTEDGE && MASK > 0)
     {
         Pointer::Cursor::overrideController->setOverride("left_ptr", Pointer::Cursor::CURSOR_OVERRIDE_WINDOW_EDGE);
+        m_bResizeCursorActive = true;
+    }
+    else if (GRABBABLE)
+    {
+        Pointer::Cursor::overrideController->setOverride(m_bDraggingThis ? "grabbing" : "grab", Pointer::Cursor::CURSOR_OVERRIDE_WINDOW_EDGE);
         m_bResizeCursorActive = true;
     }
     else if (m_bResizeCursorActive)
