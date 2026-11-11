@@ -10,6 +10,13 @@
 #include <cstring>
 #include <cerrno>
 
+namespace {
+// Frame state suffixes, tried in order. One list for every frame resolution so a new
+// spelling cannot be added to one call site and forgotten in another.
+const std::vector<std::string> FRAME_SUFFIX_ACTIVE   = {"_active", "_focused", "active", ""};
+const std::vector<std::string> FRAME_SUFFIX_INACTIVE = {"_inactive", "_unfocused", "inactive"};
+} // namespace
+
 std::string CPlugin::statePath(const std::string &base, const char *suffix) const
 {
     // The suffix goes BEFORE the extension: "close.png" -> "close_hovered.png". Suffixing
@@ -368,18 +375,11 @@ SFrame CPlugin::resolveFrame(const SConfig &C, const STheme *theme)
     const bool        LINEAR  = theme && theme->linearFiltering ? *theme->linearFiltering : C.linearFiltering;
     const bool        REPEAT  = theme && theme->repeat ? *theme->repeat : C.repeat;
 
-    const auto PICK = [](double themeValue, double fallbackValue) { return themeValue >= 0 ? themeValue : fallbackValue; };
-    const double TH_L = theme ? PICK(theme->thickness.left, C.thickness.left) : C.thickness.left;
-    const double TH_T = theme ? PICK(theme->thickness.top, C.thickness.top) : C.thickness.top;
-    const double TH_R = theme ? PICK(theme->thickness.right, C.thickness.right) : C.thickness.right;
-    const double TH_B = theme ? PICK(theme->thickness.bottom, C.thickness.bottom) : C.thickness.bottom;
-    const double IN_L = theme ? PICK(theme->inset.left, C.inset.left) : C.inset.left;
-    const double IN_T = theme ? PICK(theme->inset.top, C.inset.top) : C.inset.top;
-    const double IN_R = theme ? PICK(theme->inset.right, C.inset.right) : C.inset.right;
-    const double IN_B = theme ? PICK(theme->inset.bottom, C.inset.bottom) : C.inset.bottom;
+    const SFrameThickness TH = theme ? Sides::over(theme->thickness, C.thickness) : C.thickness;
+    const SFrameThickness IN = theme ? Sides::over(theme->inset, C.inset) : C.inset;
 
-    const std::string ACTIVE   = resolveTexturePath(TEXTURE, {"_active", "_focused", "active", ""});
-    const std::string INACTIVE = resolveTexturePath(TEXTURE, {"_inactive", "_unfocused", "inactive"}, ACTIVE);
+    const std::string ACTIVE   = resolveTexturePath(TEXTURE, FRAME_SUFFIX_ACTIVE);
+    const std::string INACTIVE = resolveTexturePath(TEXTURE, FRAME_SUFFIX_INACTIVE, ACTIVE);
 
     if (!TEXTURE.empty() && ACTIVE.empty())
         notifyError(std::format("texture not found: \"{}\"", TEXTURE));
@@ -416,16 +416,16 @@ SFrame CPlugin::resolveFrame(const SConfig &C, const STheme *theme)
         return (int)std::lround(borderPx);
     };
 
-    F.decoration_offset_left   = SIDE(TH_L, RESOLVE.padding[0], RESOLVE.border[0]) * SC;
-    F.decoration_offset_top    = SIDE(TH_T, RESOLVE.padding[1], RESOLVE.border[1]) * SC;
-    F.decoration_offset_right  = SIDE(TH_R, RESOLVE.padding[2], RESOLVE.border[2]) * SC;
-    F.decoration_offset_bottom = SIDE(TH_B, RESOLVE.padding[3], RESOLVE.border[3]) * SC;
+    F.decoration_offset_left   = SIDE(TH.left, RESOLVE.padding[0], RESOLVE.border[0]) * SC;
+    F.decoration_offset_top    = SIDE(TH.top, RESOLVE.padding[1], RESOLVE.border[1]) * SC;
+    F.decoration_offset_right  = SIDE(TH.right, RESOLVE.padding[2], RESOLVE.border[2]) * SC;
+    F.decoration_offset_bottom = SIDE(TH.bottom, RESOLVE.padding[3], RESOLVE.border[3]) * SC;
 
     const auto INSET = [&](double v) { return v >= 0 ? (int)std::lround(v * SC) : 0; };
-    F.inset_left   = INSET(IN_L);
-    F.inset_top    = INSET(IN_T);
-    F.inset_right  = INSET(IN_R);
-    F.inset_bottom = INSET(IN_B);
+    F.inset_left   = INSET(IN.left);
+    F.inset_top    = INSET(IN.top);
+    F.inset_right  = INSET(IN.right);
+    F.inset_bottom = INSET(IN.bottom);
 
     Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] resolved frame \"{}\" extents L{} T{} R{} B{} at scale={} (markers: padding {} {} {} {}, border {} {} {} {})",
                                              TEXTURE, F.decoration_offset_left, F.decoration_offset_top, F.decoration_offset_right, F.decoration_offset_bottom, SC,
