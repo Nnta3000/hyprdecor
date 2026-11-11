@@ -372,6 +372,25 @@ const char *CHyprWindowDecorator::resizeEdgeAt(Vector2D COORDS)
     return nullptr;
 }
 
+// Reads a Hyprland config value through the same typed reply used elsewhere in the
+// plugin. Missing/uncommitted options fall back rather than assuming a layout. These
+// are read per pointer move, so nothing is cached across a config reload.
+static bool hyprBoolOption(const char *name, bool fallback)
+{
+    const auto REPLY = Config::mgr()->getConfigValue(name);
+    if (!REPLY.dataptr || !*REPLY.dataptr)
+        return fallback;
+    return *(const bool *)*REPLY.dataptr;
+}
+
+static int64_t hyprIntOption(const char *name, int64_t fallback)
+{
+    const auto REPLY = Config::mgr()->getConfigValue(name);
+    if (!REPLY.dataptr || !*REPLY.dataptr)
+        return fallback;
+    return *(const int64_t *)*REPLY.dataptr;
+}
+
 // Keep the WINDOW_EDGE override in sync with the band. One slot is shared with Hyprland's
 // own border logic, so leaving the band must UNSET it rather than set an arrow -- Hyprland
 // will repaint its own answer on the next move.
@@ -416,9 +435,38 @@ void CHyprWindowDecorator::applyResizeCursor()
 
     const char *SHAPE = ONITEM ? nullptr : resizeEdgeAt(COORDS);
 
+    // The frame sits INSIDE Hyprland's window-edge band. Hyprland's own
+    // setCursorIconOnBorder() still paints a resize cursor on the CLIENT edge, where
+    // this decoration swallows the press, so the inner edge shows a resize cursor that
+    // cannot act. Mask that band with the normal cursor: it is the same band Hyprland
+    // would have covered with its own override, so no client cursor is lost, and the
+    // user sees one resize zone (the outer frame band) instead of two.
+    const auto   BOX = assignedBoxGlobal();
+    const auto   EXT = currentExtents();
+    const double L = EXT.topLeft.x, T = EXT.topLeft.y, R = EXT.bottomRight.x, B = EXT.bottomRight.y;
+    const double CW = BOX.w - L - R;
+    const double CH = BOX.h - T - B;
+    // Hyprland's own client-edge cursor band. It only exists while resize_on_border is
+    // enabled, and its width is general:extend_border_grab_area. Mask exactly that,
+    // never more: with the feature off there is no false resize cursor to replace, and
+    // forcing an arrow would hide the client's own cursor near the edge.
+    const bool    RESIZE_ON_BORDER = hyprBoolOption("general:resize_on_border", true);
+    const int64_t EXTEND_AREA      = hyprIntOption("general:extend_border_grab_area", 15);
+    const double  MASK             = RESIZE_ON_BORDER ? (double)std::max<int64_t>(0, EXTEND_AREA) : 0.0;
+
+    const bool INCLIENT = CW > 0 && CH > 0 && COORDS.x >= L && COORDS.x < L + CW && COORDS.y >= T && COORDS.y < T + CH;
+    const bool ONCLIENTEDGE =
+        INCLIENT &&
+        ((L > 0 && COORDS.x < L + MASK) || (R > 0 && COORDS.x >= L + CW - MASK) || (T > 0 && COORDS.y < T + MASK) || (B > 0 && COORDS.y >= T + CH - MASK));
+
     if (SHAPE)
     {
         Pointer::Cursor::overrideController->setOverride(SHAPE, Pointer::Cursor::CURSOR_OVERRIDE_WINDOW_EDGE);
+        m_bResizeCursorActive = true;
+    }
+    else if (ONCLIENTEDGE && MASK > 0)
+    {
+        Pointer::Cursor::overrideController->setOverride("left_ptr", Pointer::Cursor::CURSOR_OVERRIDE_WINDOW_EDGE);
         m_bResizeCursorActive = true;
     }
     else if (m_bResizeCursorActive)

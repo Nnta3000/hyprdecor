@@ -165,7 +165,9 @@ private:
 
   // Resize CURSOR over the band. Hyprland's own setCursorIconOnBorder() measures a band
   // around the CLIENT surface and skips any point inside a decoration, so it never shows
-  // the resize icon on the frame. These re-apply it for the band, after Hyprland's pass.
+  // the resize icon on the frame. These re-apply it for the band, after Hyprland's pass,
+  // and mask the client-edge band where Hyprland still paints a resize cursor that this
+  // decoration cannot act on.
   void requestResizeCursorUpdate();
   void applyResizeCursor();
   // Which resize edge COORDS is on ("left_side", "top_left_corner", ...) or nullptr.
@@ -173,8 +175,9 @@ private:
   // CURSOR call it, so they cannot drift apart.
   const char *resizeEdgeAt(Vector2D COORDS);
   bool m_bResizeCursorPending = false;
-  // True while THIS decorator owns the shared window-edge cursor override, so it never
-  // clears one another window set.
+  // True while THIS decorator owns the shared window-edge cursor override (either a
+  // resize shape or the arrow that masks Hyprland's unusable client-edge band), so it
+  // never clears one another window set.
   bool m_bResizeCursorActive = false;
   void onMouseButton(Event::SCallbackInfo &info, IPointer::SButtonEvent e);
   void onTouchDown(Event::SCallbackInfo &info, ITouch::SDownEvent e);
