@@ -49,8 +49,7 @@ static bool pinnedBit(const PHLWINDOW &W)
     return W && (((uint8_t)W->m_state & (uint8_t)Desktop::View::WINDOW_STATE_PINNED) != 0);
 }
 
-static void        dispatchLua(const std::string &what, const std::string &code);
-static void        dispatchLuaSync(const std::string &what, const std::string &code);
+static void        dispatchLua(const std::string &what, const std::string &code, bool sync = false);
 
 // eRectCorner is a bit mask: CORNER_LEFT alone is "left edge only", not "left corner".
 // Mapping our edge name onto it is what gives single-axis resizing.
@@ -487,16 +486,16 @@ void CHyprWindowDecorator::onTouchMove([[maybe_unused]] Event::SCallbackInfo &in
         const auto H        = PMONITOR ? (PMONITOR->m_size.y * 0.5) / PMONITOR->m_scale : 0.0;
 
         const std::string TARGET = luaWindowSelector(m_pWindow.lock());
-        dispatchLuaSync("drag-start", std::format("hl.dispatch(hl.dsp.window.float({{ action = \"enable\", window = hl.get_window(\"{0}\") }})) "
-                                                  "hl.dispatch(hl.dsp.window.resize({{ x = {1}, y = {2}, window = hl.get_window(\"{0}\") }})) "
-                                                  "hl.dispatch(hl.dsp.window.pin({{ window = hl.get_window(\"{0}\") }})) "
-                                                  "hl.dispatch(hl.dsp.window.drag())",
-                                                  TARGET, (int)W, (int)H));
+        dispatchLua("drag-start", std::format("hl.dispatch(hl.dsp.window.float({{ action = \"enable\", window = hl.get_window(\"{0}\") }})) "
+                                              "hl.dispatch(hl.dsp.window.resize({{ x = {1}, y = {2}, window = hl.get_window(\"{0}\") }})) "
+                                              "hl.dispatch(hl.dsp.window.pin({{ window = hl.get_window(\"{0}\") }})) "
+                                              "hl.dispatch(hl.dsp.window.drag())",
+                                              TARGET, (int)W, (int)H), true);
     }
     // Follow the finger. `movewindowpixel exact x y` maps onto move's absolute x/y form:
     // position is the target position, which is what the cursor-centred coords compute.
-    dispatchLuaSync("drag-move", std::format("hl.dispatch(hl.dsp.window.move({{ x = {}, y = {}, window = hl.get_window(\"{}\") }}))",
-                                             (int)(COORDS.x - (assignedBoxGlobal().w / 2)), (int)COORDS.y, luaWindowSelector(m_pWindow.lock())));
+    dispatchLua("drag-move", std::format("hl.dispatch(hl.dsp.window.move({{ x = {}, y = {}, window = hl.get_window(\"{}\") }}))",
+                                         (int)(COORDS.x - (assignedBoxGlobal().w / 2)), (int)COORDS.y, luaWindowSelector(m_pWindow.lock())), true);
     m_bDraggingThis = true;
 }
 
@@ -523,9 +522,9 @@ void CHyprWindowDecorator::handleDownEvent(Event::SCallbackInfo &info, std::opti
         if (m_bDraggingThis)
         {
             if (m_bTouchEv)
-                dispatchLuaSync("drag-tile", std::format("hl.dispatch(hl.dsp.window.float({{ action = \"disable\", window = hl.get_window(\"{}\") }}))",
-                                                         luaWindowSelector(m_pWindow.lock())));
-            dispatchLuaSync("drag-release", "hl.dispatch(hl.dsp.window.drag())");
+                dispatchLua("drag-tile", std::format("hl.dispatch(hl.dsp.window.float({{ action = \"disable\", window = hl.get_window(\"{}\") }}))",
+                                                     luaWindowSelector(m_pWindow.lock())), true);
+            dispatchLua("drag-release", "hl.dispatch(hl.dsp.window.drag())", true);
         }
 
         m_bDraggingThis = false;
@@ -570,11 +569,11 @@ void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
 
     if (m_bDraggingThis)
     {
-        dispatchLuaSync("drag-release", "hl.dispatch(hl.dsp.window.drag())");
+        dispatchLua("drag-release", "hl.dispatch(hl.dsp.window.drag())", true);
         m_bDraggingThis = false;
         if (m_bTouchEv)
-            dispatchLuaSync("drag-tile", std::format("hl.dispatch(hl.dsp.window.float({{ action = \"disable\", window = hl.get_window(\"{}\") }}))",
-                                                     luaWindowSelector(m_pWindow.lock())));
+            dispatchLua("drag-tile", std::format("hl.dispatch(hl.dsp.window.float({{ action = \"disable\", window = hl.get_window(\"{}\") }}))",
+                                                 luaWindowSelector(m_pWindow.lock())), true);
     }
 
     m_bDragPending = false;
@@ -633,41 +632,32 @@ static std::string luaWindowSelector(const PHLWINDOW &PWINDOW)
 }
 
 // `what` names the caller for the log, so a failing dispatch is attributable.
-static void dispatchLua(const std::string &what, const std::string &code)
+// `sync` runs the evaluation immediately; gestures use it because the drag must be armed
+// before the next pointer event. Everything else defers to the event loop so Lua never
+// runs re-entrantly from inside a pointer handler.
+static void dispatchLua(const std::string &what, const std::string &code, const bool sync)
 {
-    Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] action \"{}\": deferred lua dispatch of \"{}\"", what, code));
+    const char *KIND = sync ? "gesture" : "action";
+    Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] {} \"{}\": {} lua dispatch of \"{}\"", KIND, what, sync ? "immediate" : "deferred", code));
 
-    g_pEventLoopManager->doLater([what, code]() {
+    const auto RUN = [what, code, KIND]() {
         auto *const MGR = dynamic_cast<Config::Lua::CConfigManager *>(Config::mgr().get());
         if (!MGR)
         {
-            Log::logger->log(Log::ERR, std::format("[HYPRDECOR] action \"{}\": no Lua config manager (not a Lua-config Hyprland)", what));
+            Log::logger->log(Log::ERR, std::format("[HYPRDECOR] {} \"{}\": no Lua config manager (not a Lua-config Hyprland)", KIND, what));
             return;
         }
 
         // eval() reports the Lua error instead of throwing; dropping it would put us
         // back to the silent no-op this conversion exists to remove.
         if (const auto ERR = MGR->eval(code); ERR)
-            Log::logger->log(Log::ERR, std::format("[HYPRDECOR] action \"{}\": lua dispatch failed: {}", what, *ERR));
-    });
-}
+            Log::logger->log(Log::ERR, std::format("[HYPRDECOR] {} \"{}\": lua dispatch failed: {}", KIND, what, *ERR));
+    };
 
-// Synchronous variant for gestures, where ordering against the pointer matters: the
-// drag must be armed before the next motion event arrives. Only the pointer path uses
-// it; see the note at the call site.
-static void dispatchLuaSync(const std::string &what, const std::string &code)
-{
-    Log::logger->log(Log::DEBUG, std::format("[HYPRDECOR] gesture \"{}\": lua dispatch of \"{}\"", what, code));
-
-    auto *const MGR = dynamic_cast<Config::Lua::CConfigManager *>(Config::mgr().get());
-    if (!MGR)
-    {
-        Log::logger->log(Log::ERR, std::format("[HYPRDECOR] gesture \"{}\": no Lua config manager (not a Lua-config Hyprland)", what));
-        return;
-    }
-
-    if (const auto ERR = MGR->eval(code); ERR)
-        Log::logger->log(Log::ERR, std::format("[HYPRDECOR] gesture \"{}\": lua dispatch failed: {}", what, *ERR));
+    if (sync)
+        RUN();
+    else
+        g_pEventLoopManager->doLater(RUN);
 }
 
 // Runs an element's action. Named actions only: the plugin asks Hyprland to do
@@ -775,7 +765,7 @@ void CHyprWindowDecorator::runElementAction(const size_t index)
 
 void CHyprWindowDecorator::handleMovement()
 {
-    dispatchLuaSync("drag", "hl.dispatch(hl.dsp.window.drag())");
+    dispatchLua("drag", "hl.dispatch(hl.dsp.window.drag())", true);
     m_bDraggingThis = true;
     return;
 }
