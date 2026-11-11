@@ -319,12 +319,6 @@ void CHyprWindowDecorator::onMouseMove([[maybe_unused]] Vector2D coords)
         return;
 
     updateElementHover();
-
-    if (!m_bDragPending)
-        return;
-
-    m_bDragPending = false;
-    handleMovement();
 }
 
 // Map the resize band to an edge/corner shape, in the same vocabulary Hyprland uses in
@@ -399,12 +393,21 @@ void CHyprWindowDecorator::applyResizeCursor()
     if (!gPlugin->cfg.enabled || !validMapped(m_pWindow) || !Pointer::Cursor::overrideController)
         return;
 
-    // Never fight a real resize/drag in progress.
-    if (g_layoutManager && g_layoutManager->dragController()->target())
-        return;
-
     const auto PWINDOW = m_pWindow.lock();
     if (Fullscreen::controller()->isFullscreen(PWINDOW))
+        return;
+
+    // Our own move drag owns the cursor until release. Re-applying it here, before the
+    // hit test, also covers the case where the pointer briefly outruns the window.
+    if (m_bDraggingThis)
+    {
+        Pointer::Cursor::overrideController->setOverride("grabbing", Pointer::Cursor::CURSOR_OVERRIDE_WINDOW_EDGE);
+        m_bResizeCursorActive = true;
+        return;
+    }
+
+    // Never fight a real resize/drag in progress.
+    if (g_layoutManager && g_layoutManager->dragController()->target())
         return;
 
     // Only the decorator under the POINTER may touch the shared override slot.
@@ -613,7 +616,23 @@ void CHyprWindowDecorator::handleDownEvent(Event::SCallbackInfo &info, std::opti
         return;
     }
 
-    m_bDragPending = true;
+    if (m_bTouchEv)
+    {
+        m_bDragPending = true;
+        return;
+    }
+
+    // Mouse: arm Hyprland's move drag directly, exactly like the resize path arms a
+    // resize. `hl.dsp.window.drag()` is a mouse-bind dispatcher; evaluating it from a
+    // cancelled press never armed the grab, which is why the frame showed a hand but the
+    // window did not move. beginDragTarget is the same entry point Hyprland's own
+    // border drag uses, and it applies `binds.drag_threshold` before moving anything.
+    if (!g_layoutManager->dragController()->target())
+        g_layoutManager->beginDragTarget(PWINDOW->layoutTarget(), MBIND_MOVE);
+
+    m_bDraggingThis = true;
+    // Show `grabbing` on the press, not only after the first motion event.
+    requestResizeCursorUpdate();
 }
 
 void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
@@ -628,11 +647,17 @@ void CHyprWindowDecorator::handleUpEvent(Event::SCallbackInfo &info)
 
     if (m_bDraggingThis)
     {
-        dispatchLua("drag-release", "hl.dispatch(hl.dsp.window.drag())", true);
-        m_bDraggingThis = false;
         if (m_bTouchEv)
+        {
+            dispatchLua("drag-release", "hl.dispatch(hl.dsp.window.drag())", true);
             dispatchLua("drag-tile", std::format("hl.dispatch(hl.dsp.window.float({{ action = \"disable\", window = hl.get_window(\"{}\") }}))",
                                                  luaWindowSelector(m_pWindow.lock())), true);
+        }
+        else if (const auto &DRAG = g_layoutManager->dragController(); DRAG && DRAG->target())
+            DRAG->dragEnd();
+
+        m_bDraggingThis = false;
+        requestResizeCursorUpdate();
     }
 
     m_bDragPending = false;
@@ -820,13 +845,6 @@ void CHyprWindowDecorator::runElementAction(const size_t index)
 
 
     }
-}
-
-void CHyprWindowDecorator::handleMovement()
-{
-    dispatchLua("drag", "hl.dispatch(hl.dsp.window.drag())", true);
-    m_bDraggingThis = true;
-    return;
 }
 
 void CHyprWindowDecorator::renderText(SP<Render::ITexture> out, const std::string &text, const CHyprColor &color, const Vector2D &bufferSize, const float scale, const int fontSize)
