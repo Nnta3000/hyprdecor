@@ -3,7 +3,7 @@
 This file is the plan: what is built, what is next, and the decisions behind it.
 How to work is in `AGENTS.md`. What the finished config must do is in `docs/SPEC.md`.
 
-Last reviewed: 2026-11-10 (full code review; see "Review findings"). Target: **Hyprland 0.57**
+Last reviewed: 2026-11-11 (R5 deduplication; release v0.3.2). Target: **Hyprland 0.57**
 with the **Lua** config manager, Lua 5.5.
 
 ## Where we are
@@ -22,7 +22,7 @@ Present in the code:
 - [x] `bandBox()` / `elementBox()` are gone; layout is one pure pass (`layout.hpp`).
 - [ ] Full per-window themes (title, items).
 - [ ] Release readiness: see milestone R.
-- [x] R0-R4: review patches, shader removal, legacy buttons removed, one config source, pure strict parser.
+- [x] R0-R5: review patches, shader removal, legacy buttons removed, one config source, pure strict parser, deduplication.
 
 ### Review patches 01 to 04 (applied)
 
@@ -69,7 +69,7 @@ render pixel-identically against the baseline screenshot.
 | R2 | Delete the legacy button path | **Done.** `onNewButtonTextured`, `SHyprButton`, `m_vButtons`, `m_pButtonsTex`, `m_iButtonPressedIdx`, `m_iButtonHoverState`, `m_bButtonsDirty`, `indexToButton`, `renderBarButtons`, `renderBarButtonsText`, `getVisibleButtonCount`, `damageOnButtonHover`, the `exec_cmd` dispatch, `onPreConfigReload`, `Compat::splitVars`, and the button-related `bar_button_padding`/`buttonsAlignment`/`onDoubleClick` config are gone. Item elements remain. |
 | R3 | One config source | **Done.** The mirrored `CPlugin` fields are deleted; every reader uses `cfg`. `defaultScale` defaults to 1 and the guards are gone. Defaults exist only in `config.hpp`. |
 | R4 | Pure, strict Lua parser | **Done.** `parseSetup(lua_State*, const SParseContext&) -> SConfig` lives in `luaParse.cpp` with injected texture resolution and no `gPlugin` dependency. Strict type readers and `intField`/`uintField` ranges throw; `lua_parse_test` runs against Lua 5.5 (also under ASan). |
-| R5 | Remove duplication | `SConfig::scale()`; `drawNinePatch()` (elements and title background); `loadNinePatchTexture()` (five copies); one frame-suffix list; `ruleEffect(idx)`; `Sides::over()` for theme resolution; `dispatchLua` takes a `sync` flag; title-background cache key includes `linearFiltering`. |
+| R5 | Remove duplication | **Done.** `SConfig::scale()`; `drawNinePatch()` (elements and title background); `loadNinePatchTexture()` (element states and the title backdrop pair); one frame-suffix list; `ruleEffect(idx)`; `Sides::over()` for theme resolution; `dispatchLua` takes a `sync` flag; title-background cache key includes `linearFiltering`. |
 | R6 | Layout and status | `resolveLayout()` cached per (decoration box, window-state snapshot, `cfg.applies`). `layoutJson()` and `liveDecorators()` are `const` without `const_cast`. Pixel snapping per D7, with tests. `hyprctl hyprdecor json` per D9. |
 | R7 | File organisation | Folder layout from `AGENTS.md` section 8, as a move-only commit; `hyprWindowDecorator.cpp` split into input, actions, render, rules; CMake lists sources explicitly (no `GLOB_RECURSE`). |
 | R8 | Docstring pass | Every declaration documented per `AGENTS.md` section 7; changelog-style comments ("this used to", "was declared but never assigned") deleted. |
