@@ -1242,8 +1242,15 @@ void CHyprWindowDecorator::renderBarTitle([[maybe_unused]] Render::CRenderContex
     // Font size follows BOTH: `defaults.scale` (art units, so the text grows with the
     // frame) and the monitor scale (logical -> device). Previously only the monitor scale
     // was applied, so a frame scaled to 4 kept 13px-tall text.
-    const double ART   = (double)gPlugin->cfg.defaultScale;
-    const auto   scaledSize = gPlugin->cfg.titleSize * ART * scale;
+    //
+    // The result is an EM SIZE IN DEVICE PIXELS, not points. Pango's set_size() is in
+    // points (96 DPI => x4/3), which put the em at a fractional pixel size. The pixel
+    // fonts are drawn on a 1/16-em grid: every outline coordinate is a multiple of
+    // 64/1024 em, and the advance is 7/16 em, the cap height 9/16 em, the stem 1/16 em.
+    // Snapping the em to a multiple of 16 device px makes all of those whole pixels.
+    const double ART        = (double)gPlugin->cfg.defaultScale;
+    const double WANTED     = gPlugin->cfg.titleSize * ART * scale;
+    const int    emPx       = std::max(16, (int)std::round(WANTED / 16.0) * 16);
 
     const CHyprColor COLOR = m_bForcedTitleColor.value_or(CHyprColor(gPlugin->cfg.textColor));
 
@@ -1283,7 +1290,7 @@ void CHyprWindowDecorator::renderBarTitle([[maybe_unused]] Render::CRenderContex
     // `title.font_unfocused` when it is set, and `title.font` otherwise.
     const std::string &FONT = m_bWindowHasFocus || gPlugin->cfg.titleFontUnfocused.empty() ? gPlugin->cfg.titleFont : gPlugin->cfg.titleFontUnfocused;
     PangoFontDescription *fontDesc = pango_font_description_from_string(FONT.c_str());
-    pango_font_description_set_size(fontDesc, scaledSize * PANGO_SCALE);
+    pango_font_description_set_absolute_size(fontDesc, emPx * PANGO_SCALE);
     pango_layout_set_font_description(layout, fontDesc);
     pango_font_description_free(fontDesc);
 
@@ -1340,7 +1347,7 @@ void CHyprWindowDecorator::renderBarTitle([[maybe_unused]] Render::CRenderContex
     else
     {
         PangoFontDescription *declared = pango_font_description_from_string(FONT.c_str());
-        pango_font_description_set_size(declared, scaledSize * PANGO_SCALE);
+        pango_font_description_set_absolute_size(declared, emPx * PANGO_SCALE);
         PangoFontMetrics *metrics = pango_context_get_metrics(context, declared, nullptr);
         const double      ASCENT  = pango_font_metrics_get_ascent(metrics) / (double)PANGO_SCALE;
         const double      DESCENT = pango_font_metrics_get_descent(metrics) / (double)PANGO_SCALE;
