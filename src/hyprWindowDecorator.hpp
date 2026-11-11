@@ -187,7 +187,6 @@ private:
 
   void handleDownEvent(Event::SCallbackInfo &info, std::optional<ITouch::SDownEvent> touchEvent);
   void handleUpEvent(Event::SCallbackInfo &info);
-  void handleMovement();
 
   CBox assignedBoxGlobal();
 
