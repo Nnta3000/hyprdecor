@@ -1263,22 +1263,6 @@ void CHyprWindowDecorator::renderBarTitle([[maybe_unused]] Render::CRenderContex
     const auto CAIROSURFACE = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, bufferSize.x, bufferSize.y);
     const auto CAIRO = cairo_create(CAIROSURFACE);
 
-    // Cairo antialiases glyphs by default, so any partially covered pixel is blended
-    // with the background. The pixel fonts are meant to be hard-edged, and the config
-    // already expresses "do not smooth" with `border.linear_filtering = false` (the
-    // same switch the frame art uses). Follow it for glyphs too rather than adding a
-    // separate title knob. With linear filtering enabled, Cairo's default is kept.
-    //
-    // The font options must be set on the cairo context BEFORE the layout is created:
-    // pango_cairo_create_layout() copies them into the Pango context.
-    if (!gPlugin->cfg.linearFiltering)
-    {
-        cairo_font_options_t *fontOptions = cairo_font_options_create();
-        cairo_font_options_set_antialias(fontOptions, CAIRO_ANTIALIAS_NONE);
-        cairo_set_font_options(CAIRO, fontOptions);
-        cairo_font_options_destroy(fontOptions);
-    }
-
     // clear the pixmap
     cairo_save(CAIRO);
     cairo_set_operator(CAIRO, CAIRO_OPERATOR_CLEAR);
