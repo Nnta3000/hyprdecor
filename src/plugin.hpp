@@ -142,6 +142,9 @@ public:
     SNinePatchInfo       m_titleBgNPI;
     Vector2D             m_titleBgSize = {0, 0};
     std::string          m_szLoadedTitleBg;
+    // What the loaded title backdrop was uploaded with. Part of the cache key: the
+    // resampling filter is baked in at upload time.
+    bool                 m_bLoadedTitleBgLinear = true;
 
     // Windows we have decorated. Decorators themselves are owned by Hyprland
     // (window->m_windowDecorations); storing their raw pointers here went stale as

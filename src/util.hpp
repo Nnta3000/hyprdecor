@@ -130,6 +130,24 @@ inline void uploadCairoSurface(const SP<Render::ITexture> &tex, cairo_surface_t 
     tex->m_size = {(double)W, (double)H};
 }
 
+// Loads `path` as a nine-patch: parses its marker border into `npi`, crops the marker
+// pixels through NinePatch::load() and uploads the result. Returns false when the file
+// is missing or unreadable; `tex` and `npi` are left untouched in that case, so a caller
+// can keep its previous state. Every nine-patch load goes through here.
+inline bool loadNinePatchTexture(const std::string &path, const SP<Render::ITexture> &tex, SNinePatchInfo &npi, bool linear = false)
+{
+    if (!tex || path.empty())
+        return false;
+
+    cairo_surface_t *surface = loadSurface(path, &npi, 0);
+    if (!surface)
+        return false;
+
+    uploadCairoSurface(tex, surface, linear);
+    cairo_surface_destroy(surface);
+    return true;
+}
+
 inline void loadTexture(std::string path, SP<Render::ITexture> &out, bool linear = true, int targetSize = 0)
 {
     if (path.empty() || out->m_texID != 0)
