@@ -129,14 +129,9 @@ void CPlugin::loadAllTextures()
 
             if (element.cfg.ninepatch)
             {
-                // Nine-patch elements need the markers, so go through loadSurface with
-                // metadata parsing and upload the cropped result.
-                cairo_surface_t *surface = loadSurface(element.cfg.path, &element.npi);
-                if (surface)
-                {
-                    uploadCairoSurface(element.tex, surface, LINEAR);
-                    cairo_surface_destroy(surface);
-                }
+                // Nine-patch elements need the markers, so go through the shared loader,
+                // which parses them and uploads the cropped image.
+                loadNinePatchTexture(element.cfg.path, element.tex, element.npi, LINEAR);
             }
             else
                 loadTexture(element.cfg.path, element.tex, LINEAR);
@@ -174,14 +169,7 @@ void CPlugin::loadAllTextures()
                 // border off every variant, so a 13x14 icon became 11x12 and the hovered
                 // art appeared cropped and zoomed relative to the idle art.
                 if (element.cfg.ninepatch)
-                {
-                    cairo_surface_t *surface = loadSurface(VARIANT, &slot.npi, 0);
-                    if (surface)
-                    {
-                        uploadCairoSurface(slot.tex, surface, LINEAR);
-                        cairo_surface_destroy(surface);
-                    }
-                }
+                    loadNinePatchTexture(VARIANT, slot.tex, slot.npi, LINEAR);
                 else
                     loadTexture(VARIANT, slot.tex, LINEAR);
 
@@ -215,42 +203,34 @@ void CPlugin::loadAllTextures()
         }
     }
 
-    // Title backdrop, loaded when its path changes. It has an active _unfocused pair,
-    // like the frame: the swap follows window focus, not the pointer, so it needs no
-    // hover/pressed states.
-    if (cfg.titleBgEnabled && !cfg.titleBgPath.empty() && m_szLoadedTitleBg != cfg.titleBgPath)
+    // Title backdrop, loaded when its path OR its filtering changes. It has an active
+    // _unfocused pair, like the frame: the swap follows window focus, not the pointer,
+    // so it needs no hover/pressed states. The cache key includes `linearFiltering`
+    // because the filter is applied when the texture is uploaded; keying on the path
+    // alone silently kept the old resampling after a reload.
+    if (cfg.titleBgEnabled && !cfg.titleBgPath.empty() &&
+        (m_szLoadedTitleBg != cfg.titleBgPath || m_bLoadedTitleBgLinear != cfg.linearFiltering))
     {
         m_pTitleBgTex          = makeShared<Render::GL::CGLTexture>();
         m_pTitleBgTexUnfocused = makeShared<Render::GL::CGLTexture>();
         m_titleBgNPI           = SNinePatchInfo{};
 
-        cairo_surface_t *surface = loadSurface(cfg.titleBgPath, &m_titleBgNPI, 0);
-        if (surface)
-        {
-            uploadCairoSurface(m_pTitleBgTex, surface, cfg.linearFiltering);
+        if (loadNinePatchTexture(cfg.titleBgPath, m_pTitleBgTex, m_titleBgNPI, cfg.linearFiltering))
             m_titleBgSize = m_pTitleBgTex->m_size;
-            cairo_surface_destroy(surface);
-        }
 
         // The variant must keep the active geometry, so it is a swap of pixels only.
-        // Loaded through the same marker path, because a nine-patch variant must share
-        // the base's border; a missing file falls back to the active texture.
         const std::string VARIANT = statePath(cfg.titleBgPath, "_unfocused");
         if (VARIANT != cfg.titleBgPath)
         {
             SNinePatchInfo variantNPI;
-            cairo_surface_t *vs = loadSurface(VARIANT, &variantNPI, 0);
-            if (vs)
-            {
-                uploadCairoSurface(m_pTitleBgTexUnfocused, vs, cfg.linearFiltering);
-                cairo_surface_destroy(vs);
-            }
+            loadNinePatchTexture(VARIANT, m_pTitleBgTexUnfocused, variantNPI, cfg.linearFiltering);
         }
 
         if (m_pTitleBgTexUnfocused->m_texID == 0)
             m_pTitleBgTexUnfocused = m_pTitleBgTex;
 
-        m_szLoadedTitleBg = cfg.titleBgPath;
+        m_szLoadedTitleBg       = cfg.titleBgPath;
+        m_bLoadedTitleBgLinear  = cfg.linearFiltering;
     }
 
 
