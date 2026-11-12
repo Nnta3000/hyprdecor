@@ -150,4 +150,8 @@ See [docs/configuration.md](docs/configuration.md) for the full reference, inclu
 
 Originally by CapsAdmin. Decorations inspired by the Android nine-patch format.
 
+## License
+
+MIT. See [LICENSE](LICENSE).
+
 

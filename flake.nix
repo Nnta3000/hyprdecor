@@ -38,7 +38,7 @@
         meta = with lib; {
           homepage = "https://github.com/CapsAdmin/hyprdecor";
           description = "Hyprland customizable window decorations";
-          license = licenses.bsd3;
+          license = licenses.mit;
           platforms = platforms.linux;
         };
       };
@@ -57,7 +57,7 @@
         meta = with lib; {
           homepage = "https://github.com/CapsAdmin/hyprdecor";
           description = "Hyprland customizable window decorations (debug build)";
-          license = licenses.bsd3;
+          license = licenses.mit;
           platforms = platforms.linux;
         };
       };
